@@ -334,6 +334,18 @@ def today():
     return dt.date.today().isoformat()
 
 
+def wait_for_phone(phone):
+    """Block until the phone is on the cable, unlocked and Bumble is open. Logs once, then quietly retries."""
+    said = False
+    while True:
+        try:
+            phone.ensure_bridge(); phone.open_bumble(); return
+        except Exception as e:
+            if not said:
+                log(f"waiting for the phone (plug it in and unlock it): {str(e)[:80]}"); said = True
+            time.sleep(60)
+
+
 def single_instance():
     """One bot per phone: a second copy would fight the first for the screen."""
     import fcntl
@@ -362,14 +374,11 @@ def main():
     if state.get("day") != today():
         state = {"day": today(), "likes": 0, "nopes": 0, "judged": 0, "matches": 0}
     phone = Phone(cfg["device_id"])
-    phone.ensure_bridge()
-    phone.open_bumble()
-
     if state.get("limit_until", 0) > time.time():
         until = state["limit_until"]; log(f"still out of likes; sleeping until {dt.datetime.fromtimestamp(until).strftime('%a %H:%M')}")
         while time.time() < until:
             time.sleep(min(300, until - time.time()))
-        phone.open_bumble()
+    wait_for_phone(phone)
     session = 0; since_break = 0; next_break = random.randint(*cfg["break_every"])
     last_key = ""; last_at = 0; last_decision = None; stuck = 0; other = 0; scrolled = 0
     log(f"start speed={cfg['speed']} ratio={cfg['like_ratio']} vision={cfg['vision']['provider']} dry={a.dry} once={a.once}")
@@ -390,7 +399,7 @@ def main():
         try:
             tree, shot = phone.observe()
         except Exception as e:
-            log(f"observe failed: {e}"); time.sleep(5); phone.ensure_bridge(); continue
+            log(f"observe failed: {str(e)[:100]}"); time.sleep(5); wait_for_phone(phone); continue
         kind = screen_kind(tree)
         if kind == "match":
             state["matches"] += 1; save(STATE_PATH, state); log("MATCH (Bumble: she messages first, closing)")
