@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.9';
+  var VERSION = '1.1.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -45,10 +45,12 @@
       unsure: 'ratio',        // like | nope | ratio when body not judged confidently
       minQuality: 5,          // 0..10, below = grainy/trash -> nope
       swimwearAutoLike: true,
-      curvesAutoLike: 8,      // curves score >= this -> like
+      curvesAutoLike: 7,      // curves score >= this -> like
       maxPhotos: 6,
       requireFullBody: true,
       minFeminine: 6,
+      bustAutoLike: 7,          // like at/above (still needs a full-body photo)
+      sexyAutoLike: 7,
       minFace: 6,               // nope below this
       likeFace: 8,              // like at/above this (with a full-body photo)
       nopeDyedHair: true,
@@ -154,7 +156,13 @@
     var top = Array.prototype.slice.call(document.querySelectorAll('.recsCardboard__cards > [aria-hidden="false"], [class*="recsCardboard__cards"] > [aria-hidden="false"]'))
       .filter(function (c) { return c.querySelector('[itemprop="name"], h1') && photoEls(c).length; })[0];
     if (top) return top;
-    var els = photoEls(document).filter(function (e) { return visible(e) && !e.closest('[aria-hidden="true"]'); });
+    var names = Array.prototype.slice.call(document.querySelectorAll('[itemprop="name"]')).filter(function (n) { return visible(n) || present(n); });
+    var pick = names.filter(function (n) { return !n.closest('[aria-hidden="true"]'); })[0] || names[0];
+    if (pick) {
+      var c = pick;
+      for (var k = 0; k < 12 && c && c !== document.body; k++) { c = c.parentElement; if (c && photoEls(c).length) return c; }
+    }
+    var els = photoEls(document).filter(visible);
     if (!els.length) return null;
     var el = els[0], node = el;
     for (var i = 0; i < 12 && node && node !== document.body; i++) {
@@ -232,7 +240,8 @@
 
   // ---------------------------------------------------------------- vision judge
   var PROMPT = 'You are rating dating-app profile photos for a personal swipe filter. Look at ALL photos and return ONLY a JSON object, no prose, no markdown:\n' +
-    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"notes":"short"}\n' +
+    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"notes":"short"}\n' +
+    'bust: how large/prominent her chest is (0-10). sexy_vibe: how provocative, flirty or slutty the vibe is (tongue out, suggestive poses, revealing outfits, lingerie; 0 = wholesome, 10 = very provocative). ' +
     'face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true if hair is an unnatural color (pink, blue, green, purple, etc). ' +
     'Judge across ALL photos, not just the first. full_body_visible: true only if at least one photo shows her from head to at least mid-thigh. swimwear: true if ANY photo shows a bikini, swimsuit or lingerie. ' +
     'body: overall body size of the main person using the clearest full-body photo (plus = visibly heavy/plus-size). curves: how pronounced hips/glutes/hourglass figure are. ' +
@@ -351,6 +360,8 @@
     if (V.nopeDyedHair && v.dyed_hair === true) return { d: 'nope', why: 'dyed hair' };
     if (V.requireFullBody && v.full_body_visible !== true) return { d: 'nope', why: 'no full-body photo' };
     if (!isNaN(face) && V.likeFace && face >= V.likeFace) return { d: 'like', why: 'face ' + face };
+    if (Number(v.sexy_vibe) >= (V.sexyAutoLike || 11)) return { d: 'like', why: 'sexy vibe ' + v.sexy_vibe };
+    if (Number(v.bust) >= (V.bustAutoLike || 11)) return { d: 'like', why: 'bust ' + v.bust };
     if (V.swimwearAutoLike && v.swimwear === true) return { d: 'like', why: 'swimwear' };
     if (Number(v.curves) >= V.curvesAutoLike) return { d: 'like', why: 'curves ' + v.curves };
     var likeB = (V.likeBodies || '').split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
@@ -513,7 +524,7 @@
         setStatus('judging ' + (p.name || 'card') + '...');
         return judge(p).then(function (v) {
           stats.judged++; var r = applyVerdict(v);
-          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, dyed: v.dyed_hair, fem: v.feminine }) + ' [' + v._model + ']');
+          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, bust: v.bust, sexy: v.sexy_vibe, dyed: v.dyed_hair, fem: v.feminine }) + ' [' + v._model + ']');
           return r;
         }).catch(function (e) { log('vision failed (' + e.message + '), ' + (cfg.vision.onFail === 'nope' ? 'nope' : 'using ratio'), 'warn'); return cfg.vision.onFail === 'nope' ? { d: 'nope', why: 'vision failed' } : null; });
       }
@@ -649,6 +660,8 @@
       field('If vision fails', 'vision.onFail', 'select', { options: ['ratio', 'nope'] }),
       field('Swimwear = auto like', 'vision.swimwearAutoLike', 'check'),
       field('Curves score auto like (0-10)', 'vision.curvesAutoLike', 'range', { min: 0, max: 11 }),
+      field('Bust score auto like (0-10)', 'vision.bustAutoLike', 'range', { min: 0, max: 11 }),
+      field('Sexy vibe auto like (0-10)', 'vision.sexyAutoLike', 'range', { min: 0, max: 11 }),
       field('Photos sent per card', 'vision.maxPhotos', 'number'),
       h('div', {}, [h('button', { 'class': 'sw-act', onclick: function () {
         var c = findCard(); if (!c) return log('no card to test', 'warn'); var p = parseCard(c);
