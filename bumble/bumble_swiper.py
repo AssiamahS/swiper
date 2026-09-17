@@ -60,9 +60,9 @@ PROMPT = (
     "You are rating dating-app profile screenshots for a personal swipe filter. Look at ALL images "
     "(they are scrolled views of one profile; ignore app chrome, buttons and text boxes) and return ONLY a JSON object, no prose:\n"
     '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,'
-    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"facial_piercings":true|false,"alt_style":true|false,"notes":"short"}\n'
+    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"facial_piercings":true|false,"alt_style":true|false,"glutes":0-10,"gym_selfie":true|false,"notes":"short"}\n'
     "bust: how large/prominent her chest is (0-10). sexy_vibe: how provocative, flirty or slutty the vibe is (tongue out, suggestive poses, revealing outfits, lingerie; 0 = wholesome, 10 = very provocative). "
-    "face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true for unnatural or split-dyed hair (pink, blue, green, purple, bright yellow, bright red, two-tone split dye); natural blonde, highlights, balayage and auburn = false. facial_piercings: true for nose rings, septum, lip, eyebrow or face piercings (ear piercings = false). alt_style: true for emo/goth/punk/alt styling, heavy dark makeup, chains, harnesses. in_shape: true if she looks fit or slim-to-average with a toned or curvy figure, false if overweight. "
+    "face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true for unnatural or split-dyed hair (pink, blue, green, purple, bright yellow, bright red, two-tone split dye); natural blonde, highlights, balayage and auburn = false. facial_piercings: true for nose rings, septum, lip, eyebrow or face piercings (ear piercings = false). alt_style: true for emo/goth/punk/alt styling, heavy dark makeup, chains, harnesses. glutes: how big and shapely her butt is (0-10). gym_selfie: true for a gym or mirror selfie showing off her figure or butt. in_shape: true if she looks fit or slim-to-average with a toned or curvy figure, false if overweight. "
     "Judge across ALL images, not just the first. full_body_visible: true only if at least one image shows her from head to at least mid-thigh. swimwear: true if ANY image shows a bikini, swimsuit or lingerie. "
     "body: overall body size of the profile owner using the clearest full-body photo (plus = visibly heavy/plus-size). "
     "curves: how pronounced hips/glutes/hourglass figure are. photo_quality: 10 = sharp, well lit, high-res; "
@@ -277,6 +277,10 @@ def apply_verdict(cfg, v):
         return ("nope", "alt style")
     if V["swimwear_auto_like"] and v.get("swimwear") is True:
         return ("like", f"bikini, {body}")
+    if (num(v.get("glutes")) or 0) >= V.get("glutes_auto_like", 7):
+        return ("like", f"big butt {v.get('glutes')}")
+    if V.get("gym_selfie_like", True) and v.get("gym_selfie") is True:
+        return ("like", "gym selfie")
     if face is not None and face < V.get("min_face", 0):
         return ("nope", f"face {face}")
     if v.get("grainy") is True or (q is not None and q < V["min_quality"]):
@@ -447,7 +451,7 @@ def main():
             try:
                 v = gemini_judge(cfg, shots, p)
                 state["judged"] += 1
-                log(f"{p['name']} {p['age']} -> " + json.dumps({k: v.get(k) for k in ("body", "body_confidence", "photo_quality", "swimwear", "curves", "face", "bust", "sexy_vibe", "dyed_hair", "feminine")}))
+                log(f"{p['name']} {p['age']} -> " + json.dumps({k: v.get(k) for k in ("body", "body_confidence", "photo_quality", "swimwear", "curves", "face", "glutes", "gym_selfie", "in_shape", "facial_piercings", "dyed_hair")}))
                 dec = apply_verdict(cfg, v)
             except Exception as e:
                 log(f"vision failed ({e}), using ratio")

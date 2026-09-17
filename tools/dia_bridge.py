@@ -153,7 +153,7 @@ def main():
             for r in reqs:
                 t = time.time(); v = judge(r)
                 tab.js("window.__swiperBridge && window.__swiperBridge.deliver(%s, %s)" % (json.dumps(r["id"]), json.dumps(v)))
-                log(f"{r['id']} [{len(r['urls'])} photos] -> {('ERR ' + v['error']) if 'error' in v else (v.get('_model') + ' ' + json.dumps({k: v.get(k) for k in ('body', 'in_shape', 'face', 'full_body_visible', 'swimwear', 'dyed_hair', 'facial_piercings', 'alt_style')}))} ({time.time() - t:.1f}s)")
+                log(f"{r['id']} [{len(r['urls'])} photos] -> {('ERR ' + v['error']) if 'error' in v else (v.get('_model') + ' ' + json.dumps({k: v.get(k) for k in ('body', 'in_shape', 'face', 'full_body_visible', 'swimwear', 'dyed_hair', 'facial_piercings', 'alt_style', 'glutes', 'gym_selfie')}))} ({time.time() - t:.1f}s)")
             time.sleep(0.4 if reqs else 0.8)
         except KeyboardInterrupt:
             break

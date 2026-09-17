@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.3.0';
+  var VERSION = '1.3.1';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -295,9 +295,9 @@
 
   // ---------------------------------------------------------------- vision judge
   var PROMPT = 'You are rating dating-app profile photos for a personal swipe filter. Look at ALL photos and return ONLY a JSON object, no prose, no markdown:\n' +
-    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"facial_piercings":true|false,"alt_style":true|false,"notes":"short"}\n' +
+    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"facial_piercings":true|false,"alt_style":true|false,"glutes":0-10,"gym_selfie":true|false,"notes":"short"}\n' +
     'bust: how large/prominent her chest is (0-10). sexy_vibe: how provocative, flirty or slutty the vibe is (tongue out, suggestive poses, revealing outfits, lingerie; 0 = wholesome, 10 = very provocative). ' +
-    'face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true for unnatural or split-dyed hair (pink, blue, green, purple, bright yellow, bright red, two-tone split dye); natural blonde, highlights, balayage and auburn = false. facial_piercings: true for nose rings, septum, lip, eyebrow or face piercings (ear piercings = false). alt_style: true for emo/goth/punk/alt styling, heavy dark makeup, chains, harnesses. in_shape: true if she looks fit or slim-to-average with a toned or curvy figure, false if overweight. ' +
+    'face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true for unnatural or split-dyed hair (pink, blue, green, purple, bright yellow, bright red, two-tone split dye); natural blonde, highlights, balayage and auburn = false. facial_piercings: true for nose rings, septum, lip, eyebrow or face piercings (ear piercings = false). alt_style: true for emo/goth/punk/alt styling, heavy dark makeup, chains, harnesses. glutes: how big and shapely her butt is (0-10). gym_selfie: true for a gym or mirror selfie showing off her figure or butt. in_shape: true if she looks fit or slim-to-average with a toned or curvy figure, false if overweight. ' +
     'Judge across ALL photos, not just the first. full_body_visible: true only if at least one photo shows her from head to at least mid-thigh. swimwear: true if ANY photo shows a bikini, swimsuit or lingerie. ' +
     'body: overall body size of the main person using the clearest full-body photo (plus = visibly heavy/plus-size). curves: how pronounced hips/glutes/hourglass figure are. ' +
     'photo_quality: 10 = sharp, well lit, high-res; 0 = blurry, grainy, dark, pixelated, heavy filters. grainy = true if most photos are low quality. ' +
@@ -443,6 +443,8 @@
     if (V.nopeAlt !== false && v.alt_style === true) return { d: 'nope', why: 'alt style' };
     // bikini/swimsuit and in shape: the body is on show, like
     if (V.swimwearAutoLike && v.swimwear === true) return { d: 'like', why: 'bikini, ' + body };
+    if (num(v.glutes) !== null && num(v.glutes) >= (V.glutesAutoLike || 7)) return { d: 'like', why: 'big butt ' + v.glutes };
+    if (V.gymSelfieLike !== false && v.gym_selfie === true) return { d: 'like', why: 'gym selfie' };
     if (face !== null && face < (V.minFace || 0)) return { d: 'nope', why: 'face ' + face };
     if (v.grainy === true || (q !== null && q < V.minQuality)) return { d: 'nope', why: 'grainy/quality ' + q };
     if (V.requireFullBody && v.full_body_visible !== true) return { d: 'nope', why: 'no full-body photo' };
@@ -621,7 +623,7 @@
         setStatus('judging ' + (p.name || 'card') + '...');
         return judge(p).then(function (v) {
           stats.judged++; var r = applyVerdict(v);
-          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, bust: v.bust, sexy: v.sexy_vibe, fit: v.in_shape, full: v.full_body_visible, dyed: v.dyed_hair, pierce: v.facial_piercings, alt: v.alt_style, n: p.photos.length }) + ' [' + v._model + ']');
+          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, bust: v.bust, sexy: v.sexy_vibe, fit: v.in_shape, full: v.full_body_visible, dyed: v.dyed_hair, butt: v.glutes, gym: v.gym_selfie, pierce: v.facial_piercings, alt: v.alt_style, n: p.photos.length }) + ' [' + v._model + ']');
           return r;
         }).catch(function (e) {
           if (cfg.vision.onFail === 'nope') { log('vision failed (' + e.message + '), nope', 'warn'); return { d: 'nope', why: 'vision failed' }; }
@@ -759,6 +761,8 @@
       field('Like if face at least (0-10)', 'vision.likeFace', 'range', { min: 0, max: 11 }),
       field('Nope on dyed hair', 'vision.nopeDyedHair', 'check'),
       field('Nope on face piercings', 'vision.nopePiercings', 'check'),
+      field('Big butt auto like (0-10)', 'vision.glutesAutoLike', 'range', { min: 0, max: 11 }),
+      field('Gym/mirror selfie = like', 'vision.gymSelfieLike', 'check'),
       field('Nope on emo/goth/alt style', 'vision.nopeAlt', 'check'),
       field('Like body types (comma)', 'vision.likeBodies', 'text', { placeholder: 'slim, athletic' }),
       field('...when photo quality >=', 'vision.likeMinQuality', 'range', { min: 0, max: 10 }),
