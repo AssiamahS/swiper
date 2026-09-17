@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.2';
+  var VERSION = '1.0.3';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -47,7 +47,8 @@
       swimwearAutoLike: true,
       curvesAutoLike: 8,      // curves score >= this -> like
       maxPhotos: 3,
-      requireFullBody: false
+      requireFullBody: false,
+      minFeminine: 6
     },
     geo: {
       enabled: false, lat: 40.758, lng: -73.9855, accuracy: 25,
@@ -218,10 +219,10 @@
 
   // ---------------------------------------------------------------- vision judge
   var PROMPT = 'You are rating dating-app profile photos for a personal swipe filter. Look at ALL photos and return ONLY a JSON object, no prose, no markdown:\n' +
-    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"notes":"short"}\n' +
+    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"notes":"short"}\n' +
     'body: overall body size of the main person using the clearest full-body photo (plus = visibly heavy/plus-size). curves: how pronounced hips/glutes/hourglass figure are. ' +
     'photo_quality: 10 = sharp, well lit, high-res; 0 = blurry, grainy, dark, pixelated, heavy filters. grainy = true if most photos are low quality. ' +
-    'group_photo = true if you cannot tell which person is the profile owner.';
+    'group_photo = true if you cannot tell which person is the profile owner. is_woman: is the profile owner a woman (false for men, boys, or if you cannot tell). feminine: 0 = reads as a man/boy, 10 = unmistakably a woman.';
 
   function fetchImageAsDataUrl(url, maxSide) {
     return fetch(url, { mode: 'cors', credentials: 'omit' }).then(function (r) {
@@ -316,6 +317,8 @@
     var V = cfg.vision;
     var reject = V.rejectBodies.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
     var q = Number(v.photo_quality); var conf = Number(v.body_confidence);
+    var fem = Number(v.feminine);
+    if (v.is_woman === false || (!isNaN(fem) && fem < (V.minFeminine || 6))) return { d: 'nope', why: 'not a woman (feminine ' + v.feminine + ')' };
     if (v.grainy === true || (!isNaN(q) && q < V.minQuality)) return { d: 'nope', why: 'grainy/quality ' + q };
     if (reject.indexOf(String(v.body).toLowerCase()) >= 0 && (isNaN(conf) || conf >= V.minBodyConf)) return { d: 'nope', why: 'body ' + v.body + ' (' + conf + ')' };
     if (V.swimwearAutoLike && v.swimwear === true) return { d: 'like', why: 'swimwear' };
@@ -478,7 +481,7 @@
         setStatus('judging ' + (p.name || 'card') + '...');
         return judge(p).then(function (v) {
           stats.judged++; var r = applyVerdict(v);
-          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves }) + ' [' + v._model + ']');
+          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, woman: v.is_woman, fem: v.feminine }) + ' [' + v._model + ']');
           return r;
         }).catch(function (e) { log('vision failed (' + e.message + '), using ratio', 'warn'); return null; });
       }
@@ -605,6 +608,7 @@
       field('When unsure', 'vision.unsure', 'select', { options: ['ratio', 'like', 'nope'] }),
       field('Require full-body photo', 'vision.requireFullBody', 'check'),
       field('Min photo quality (0-10)', 'vision.minQuality', 'range', { min: 0, max: 10 }),
+      field('Min feminine score (0-10)', 'vision.minFeminine', 'range', { min: 0, max: 10 }),
       field('Swimwear = auto like', 'vision.swimwearAutoLike', 'check'),
       field('Curves score auto like (0-10)', 'vision.curvesAutoLike', 'range', { min: 0, max: 11 }),
       field('Photos sent per card', 'vision.maxPhotos', 'number'),

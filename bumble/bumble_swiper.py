@@ -44,19 +44,23 @@ DEFAULTS = {
         "min_quality": 5,
         "swimwear_auto_like": True,
         "curves_auto_like": 8,
+        "like_bodies": [],          # e.g. ["slim","athletic"]: like when body is in this list and quality >= like_min_quality
+        "like_min_quality": 7,
+        "min_feminine": 6,
     },
 }
-SPEED = {1: (2, 5), 2: (4, 9), 3: (6, 15), 4: (10, 25), 5: (20, 45)}
+SPEED = {0: (0.3, 0.8), 1: (1, 3), 2: (4, 9), 3: (6, 15), 4: (10, 25), 5: (20, 45)}
 
 PROMPT = (
     "You are rating dating-app profile screenshots for a personal swipe filter. Look at ALL images "
     "(they are scrolled views of one profile; ignore app chrome, buttons and text boxes) and return ONLY a JSON object, no prose:\n"
     '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,'
-    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"notes":"short"}\n'
+    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"notes":"short"}\n'
     "body: overall body size of the profile owner using the clearest full-body photo (plus = visibly heavy/plus-size). "
     "curves: how pronounced hips/glutes/hourglass figure are. photo_quality: 10 = sharp, well lit, high-res; "
     "0 = blurry, grainy, dark, pixelated, heavy filters. grainy = true if most photos are low quality. "
-    "group_photo = true if you cannot tell which person is the profile owner."
+    "group_photo = true if you cannot tell which person is the profile owner. "
+    "is_woman: is the profile owner a woman (false for men, boys, or if you cannot tell). feminine: 0 = reads as a man/boy, 10 = unmistakably a woman."
 )
 
 
@@ -182,6 +186,7 @@ def parse_card(tree):
         p["name"] = na
     p["bio"] = grab(r'StaticText "([^"]*)" #bumble\.grid_profile\.about\.text')
     p["height"] = grab(r'Other "Height, ([^"]+)"')
+    p["gender"] = grab(r'Other "Gender, ([^"]+)"')
     d = re.search(r'"(\d+)\s*(miles?|km)\s*away"', tree, re.I)
     if d:
         p["distance"] = int(d.group(1))
@@ -197,9 +202,11 @@ def screen_kind(tree):
         return "card_scrolled"
     if re.search(r"it.s a match|you matched|start the chat|say hello", t):
         return "match"
-    if re.search(r"out of (swipes|likes)|swipe limit|no more swipes|you.re all caught up|come back|check back", t):
+    if re.search(r"out of (swipes|likes)|swipe limit|no more swipes|used all your|daily limit|unlimited swipes", t):
         return "limit"
-    if re.search(r"verify|verification|suspended|blocked|unusual activity", t):
+    if re.search(r"caught up|seen everyone|no one new|expand your|widen|come back later|check back", t):
+        return "empty"
+    if re.search(r"verify your (identity|account)|account (is )?(suspended|blocked|banned)|unusual activity|temporarily blocked", t):
         return "verify"
     if re.search(r"premium|boost|superswipe|spotlight|upgrade|subscribe|extend", t):
         return "upsell"
@@ -243,6 +250,10 @@ def apply_verdict(cfg, v):
     q = v.get("photo_quality"); conf = v.get("body_confidence")
     q = float(q) if isinstance(q, (int, float)) else None
     conf = float(conf) if isinstance(conf, (int, float)) else None
+    fem = v.get("feminine")
+    fem = float(fem) if isinstance(fem, (int, float)) else None
+    if v.get("is_woman") is False or (fem is not None and fem < V.get("min_feminine", 6)):
+        return ("nope", f"not a woman (feminine {fem})")
     if v.get("grainy") is True or (q is not None and q < V["min_quality"]):
         return ("nope", f"grainy/quality {q}")
     if str(v.get("body", "")).lower() in [b.lower() for b in V["reject_bodies"]] and (conf is None or conf >= V["min_body_conf"]):
@@ -254,6 +265,8 @@ def apply_verdict(cfg, v):
             return ("like", f"curves {v.get('curves')}")
     except (TypeError, ValueError):
         pass
+    if str(v.get("body", "")).lower() in [b.lower() for b in V.get("like_bodies", [])] and (conf is None or conf >= V["min_body_conf"]) and (q is None or q >= V.get("like_min_quality", 7)):
+        return ("like", f"body {v.get('body')} q{q}")
     unsure = (V["require_full_body"] and v.get("full_body_visible") is False) or (conf is not None and conf < V["min_body_conf"])
     if unsure and V["unsure"] != "ratio":
         return (V["unsure"], f"unsure -> {V['unsure']}")
@@ -268,6 +281,8 @@ def text_decision(cfg, p):
         return ("nope", f"age {p['age']}")
     if F["max_age"] and p["age"] and p["age"] > F["max_age"]:
         return ("nope", f"age {p['age']}")
+    if p.get("gender") and p["gender"].lower() not in ("woman", "female", "women"):
+        return ("nope", f"gender {p['gender']}")
     blob = " ".join(p["texts"] + [p["bio"]]).lower()
     for w in F["nope_words"]:
         if w.lower() in blob:
@@ -308,7 +323,7 @@ def main():
     phone.open_bumble()
 
     session = 0; since_break = 0; next_break = random.randint(*cfg["break_every"])
-    last_key = ""; last_at = 0; last_decision = None; stuck = 0; other = 0
+    last_key = ""; last_at = 0; last_decision = None; stuck = 0; other = 0; scrolled = 0
     log(f"start speed={cfg['speed']} ratio={cfg['like_ratio']} vision={cfg['vision']['provider']} dry={a.dry} once={a.once}")
 
     while True:
@@ -333,20 +348,38 @@ def main():
             state["matches"] += 1; save(STATE_PATH, state); log("MATCH (Bumble: she messages first, closing)")
             phone.tap_text(r"(?i)keep swiping|continue|not now|close|later|got it|okay|ok") or phone.dsl([{"action": "tap", "coords": {"x": 215, "y": 900}}])
             time.sleep(rnd(1.5, 3)); continue
+        if kind in ("limit", "empty", "verify", "upsell", "other"):
+            texts = re.findall(r'(?:StaticText|Button) "([^"]{2,90})"', tree)[:12]
+            log(f"screen={kind} shot={shot} text={texts}")
         if kind == "limit":
-            log("swipe limit dialog, sleeping 3h"); time.sleep(3 * 3600); phone.open_bumble(); continue
+            log("out of likes; checking again every 30 min"); time.sleep(1800); phone.open_bumble(); continue
+        if kind == "empty":
+            log("no more people nearby (widen distance in Filters); checking again in 30 min"); time.sleep(1800); phone.open_bumble(); continue
         if kind == "verify":
             log("verification/block dialog, stopping"); break
         if kind == "upsell":
             log("upsell dialog, closing"); phone.tap_text(r"(?i)no thanks|not now|maybe later|close|skip|dismiss|continue"); time.sleep(rnd(1, 2.5)); continue
         if kind == "card_scrolled":
+            scrolled += 1
+            if scrolled > 2:
+                # a card with no name after scrolling back up = an ad or a promo card: pass on it
+                log("ad/promo card, passing"); phone.swipe_card(False); scrolled = 0; time.sleep(1.5); continue
             try:
                 phone.dsl([{"action": "scroll", "direction": "up", "amount": "full",
                             "predicate": {"accessibility_id": "bumble.grid_profile.content.scroll"}}])
             except Exception:
                 phone.dsl([{"action": "swipe", "direction": "down", "distance": "full"}])
             time.sleep(1); continue
+        scrolled = 0
         if kind != "card":
+            app = re.search(r'Application "([^"]+)"', tree)
+            app = app.group(1) if app else ""
+            if app and app != "Bumble":
+                # you are using the phone: stay out of the way, come back after 5 quiet minutes
+                other += 1
+                if other == 1: log(f"phone in use ({app}), waiting")
+                if other >= 10: log("5 min in another app, reopening Bumble"); phone.open_bumble(); other = 0
+                time.sleep(30); continue
             other += 1
             if other >= 3:
                 log("not on a card, reopening Bumble"); phone.open_bumble(); other = 0
@@ -378,7 +411,7 @@ def main():
             try:
                 v = gemini_judge(cfg, shots, p)
                 state["judged"] += 1
-                log(f"{p['name']} {p['age']} -> " + json.dumps({k: v.get(k) for k in ("body", "body_confidence", "photo_quality", "swimwear", "curves", "full_body_visible")}))
+                log(f"{p['name']} {p['age']} -> " + json.dumps({k: v.get(k) for k in ("body", "body_confidence", "photo_quality", "swimwear", "curves", "is_woman", "feminine")}))
                 dec = apply_verdict(cfg, v)
             except Exception as e:
                 log(f"vision failed ({e}), using ratio")

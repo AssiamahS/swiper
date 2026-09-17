@@ -6,3 +6,104 @@
 09-17 04:58:42 NOPE Anna Earley 22 (ratio)  today 2L/8N
 09-17 04:58:48 Reese 22 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 5, "full_body_visible": false}
 09-17 04:58:57 NOPE Reese 22 (ratio)  today 2L/9N
+09-17 04:59:09 Umme 22 -> {"body": "athletic", "body_confidence": 0.9, "photo_quality": 8, "swimwear": false, "curves": 6, "full_body_visible": true}
+09-17 04:59:23 LIKE Umme 22 (ratio)  today 3L/9N
+09-17 04:59:36 not on a card, reopening Bumble
+09-17 04:59:52 observe failed: {'success': False, 'step_results': [{'success': True, 'step_index': 0, 'action': 'wait_for', 'started_at_ms': 1789635581759, 'duration_ms': 1227, 'result': {}}, {'success': False, 'step_index': 1, 'action': 'observe', 'started_at_ms': 1789635591447, 'duration_ms': 294, 'error': {'code': 'EXECUTION_E
+09-17 05:00:17 not on a card, reopening Bumble
+09-17 05:01:26 observe failed: {'success': False, 'step_results': [{'success': True, 'step_index': 0, 'action': 'wait_for', 'started_at_ms': 1789635622364, 'duration_ms': 696, 'result': {}}, {'success': False, 'step_index': 1, 'action': 'observe', 'started_at_ms': 1789635623060, 'duration_ms': 3015, 'error': {'code': 'EXECUTION_E
+09-17 05:01:48 not on a card, reopening Bumble
+09-17 05:02:08 not on a card, reopening Bumble
+09-17 05:02:22 not on a card, reopening Bumble
+09-17 05:02:33 not on a card, reopening Bumble
+09-17 05:02:40 card did not advance, retrying like
+09-17 05:02:48 Hannah 22 -> {"body": "athletic", "body_confidence": 0.9, "photo_quality": 7, "swimwear": false, "curves": 6, "full_body_visible": true}
+09-17 05:02:57 LIKE Hannah 22 (ratio)  today 4L/9N
+09-17 05:03:07 Kiana 22 -> {"body": "slim", "body_confidence": 0.9, "photo_quality": 9, "swimwear": false, "curves": 4, "full_body_visible": true}
+09-17 05:03:22 LIKE Kiana 22 (ratio)  today 5L/9N
+09-17 05:03:32 Louise 20 -> {"body": "average", "body_confidence": 0.6, "photo_quality": 6, "swimwear": false, "curves": 4, "full_body_visible": false}
+09-17 05:03:44 LIKE Louise 20 (ratio)  today 6L/9N
+09-17 05:03:55 Joy 19 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 6, "swimwear": false, "curves": 7, "full_body_visible": false}
+09-17 05:04:03 NOPE Joy 19 (ratio)  today 6L/10N
+09-17 05:04:08 Sweesi 20 -> {"body": "slim", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 0, "full_body_visible": false}
+09-17 05:04:16 LIKE Sweesi 20 (ratio)  today 7L/10N
+09-17 05:04:21 Valkyrie Jade 22 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 8, "swimwear": true, "curves": 5, "full_body_visible": true}
+09-17 05:04:33 LIKE Valkyrie Jade 22 (swimwear)  today 8L/10N
+09-17 05:04:37 Moby 21 -> {"body": "average", "body_confidence": 0.6, "photo_quality": 7, "swimwear": false, "curves": 3, "full_body_visible": false}
+09-17 05:04:50 LIKE Moby 21 (ratio)  today 9L/10N
+09-17 05:05:01 Miu 19 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 4, "swimwear": false, "curves": 6, "full_body_visible": false}
+09-17 05:05:10 NOPE Miu 19 (grainy/quality 4.0)  today 9L/11N
+09-17 05:05:18 Joyce 22 -> {"body": "slim", "body_confidence": 0.9, "photo_quality": 8, "swimwear": false, "curves": 5, "full_body_visible": true}
+09-17 05:05:25 LIKE Joyce 22 (ratio)  today 10L/11N
+09-17 05:05:30 scroll failed: {'success': False, 'step_results': [{'success': False, 'step_index': 0, 'action': 'scroll', 'started_at_ms': 1789635929507, 'duration_ms': 566, 'error': {'code': 'NO_MATCH', 'message': 'no element found matching predicate', 'predicate': {'accessibility_id': 'bumble.grid_profile.content.scroll'}}, 'd
+09-17 05:05:36 Maria 21 -> {"body": "athletic", "body_confidence": 0.9, "photo_quality": 7, "swimwear": false, "curves": 7, "full_body_visible": true}
+09-17 05:05:43 LIKE Maria 21 (ratio)  today 11L/11N
+09-17 05:05:50 verification/block dialog, stopping
+09-17 05:15:59 start speed=1 ratio=0.0 vision=gemini dry=False once=False
+09-17 05:16:04 scroll failed: {'success': False, 'step_results': [{'success': False, 'step_index': 0, 'action': 'scroll', 'started_at_ms': 1789636563146, 'duration_ms': 491, 'error': {'code': 'NO_MATCH', 'message': 'no element found matching predicate', 'predicate': {'accessibility_id': 'bumble.grid_profile.content.scroll'}}, 'd
+09-17 05:16:07 Maria 21 -> {"body": "athletic", "body_confidence": 0.9, "photo_quality": 7, "swimwear": false, "curves": 7, "full_body_visible": true}
+09-17 05:16:08 LIKE Maria 21 (curves 7)  today 12L/11N
+09-17 05:16:14 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636574014.jpg text=['Messages', 'Contact photo for Sylvester Assiamah', 'FaceTime', 'ysl', 'add', 'Dictate', 'ysl, Includes video, 5:06\\u202fAM', 'ysl, Includes video, 5:15\\u202fAM']
+09-17 05:16:17 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636577205.jpg text=[]
+09-17 05:16:21 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636581000.jpg text=[]
+09-17 05:16:21 not on a card, reopening Bumble
+09-17 05:16:28 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636588459.jpg text=[]
+09-17 05:16:32 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636592194.jpg text=[]
+09-17 05:16:35 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636595967.jpg text=[]
+09-17 05:16:35 not on a card, reopening Bumble
+09-17 05:16:41 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636601864.jpg text=['Bumble', 'Messages']
+09-17 05:16:45 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636605481.jpg text=['Messages', 'Contact photo for Sylvester Assiamah', 'FaceTime', 'ysl', 'add', 'Dictate', 'ysl, Includes video, 5:06\\u202fAM', 'ysl, Includes video, 5:15\\u202fAM']
+09-17 05:16:49 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636609404.jpg text=['Video, Actions Menu', 'close', 'More Controls', '0:02 elapsed', '\\u200e−0:27 remaining', 'go backward 10 seconds', 'Pause', 'go forward 10 seconds', 'Add reaction', 'reply', 'download', 'Share']
+09-17 05:16:49 not on a card, reopening Bumble
+09-17 05:17:01 start speed=1 ratio=0.0 vision=gemini dry=False once=False
+09-17 05:17:07 Maria 21 -> {"body": "slim", "body_confidence": 0.9, "photo_quality": 7, "swimwear": false, "curves": 6, "full_body_visible": true}
+09-17 05:17:09 LIKE Maria 21 (body slim q7.0)  today 13L/11N
+09-17 05:17:21 Manohari Mohini 22 -> {"body": "plus", "body_confidence": 0.9, "photo_quality": 8, "swimwear": true, "curves": 8, "full_body_visible": false}
+09-17 05:17:23 NOPE Manohari Mohini 22 (body plus (0.9))  today 13L/12N
+09-17 05:17:29 Yen 21 -> {"body": "slim", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 3, "full_body_visible": false}
+09-17 05:17:31 LIKE Yen 21 (body slim q8.0)  today 14L/12N
+09-17 05:17:41 Roslyn 22 -> {"body": "athletic", "body_confidence": 1, "photo_quality": 7, "swimwear": true, "curves": 7, "full_body_visible": true}
+09-17 05:17:44 LIKE Roslyn 22 (swimwear)  today 15L/12N
+09-17 05:17:50 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789636670378.jpg text=['Messages', 'Contact photo for Sylvester Assiamah', 'FaceTime', 'ysl', 'add', 'Dictate', 'ysl, Includes video, 4:59\\u202fAM']
+09-17 05:17:50 phone in use (Messages), waiting
+09-17 05:18:26 Sharon 22 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 5, "full_body_visible": false}
+09-17 05:18:28 NOPE Sharon 22 (ratio)  today 15L/13N
+09-17 05:18:38 Rain 21 -> {"body": "slim", "body_confidence": 0.7, "photo_quality": 5, "swimwear": false, "curves": 5, "full_body_visible": false}
+09-17 05:18:40 NOPE Rain 21 (grainy/quality 5.0)  today 15L/14N
+09-17 05:18:49 Katheryne 21 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 6, "swimwear": false, "curves": 7, "full_body_visible": false}
+09-17 05:18:52 LIKE Katheryne 21 (curves 7)  today 16L/14N
+09-17 05:18:56 Anna 18 -> {"body": "slim", "body_confidence": 0.9, "photo_quality": 8, "swimwear": true, "curves": 4, "full_body_visible": true}
+09-17 05:18:59 LIKE Anna 18 (swimwear)  today 17L/14N
+09-17 05:19:04 Lily 20 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 5, "full_body_visible": false}
+09-17 05:19:05 NOPE Lily 20 (ratio)  today 17L/15N
+09-17 05:22:48 Irene 22 -> {"body": "slim", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 3, "full_body_visible": true}
+09-17 05:22:50 LIKE Irene 22 (body slim q8.0)  today 18L/15N
+09-17 05:22:56 Kamdi 20 -> {"body": "average", "body_confidence": 0.7, "photo_quality": 6, "swimwear": false, "curves": 3, "full_body_visible": false}
+09-17 05:22:58 NOPE Kamdi 20 (ratio)  today 18L/16N
+09-17 05:23:05 Kash 21 -> {"body": "average", "body_confidence": 0.5, "photo_quality": 6, "swimwear": false, "curves": 5, "full_body_visible": false}
+09-17 05:23:08 NOPE Kash 21 (grainy/quality 6.0)  today 18L/17N
+09-17 05:23:18 Breanna 22 -> {"body": "curvy", "body_confidence": 0.8, "photo_quality": 5, "swimwear": false, "curves": 8, "full_body_visible": false}
+09-17 05:23:20 NOPE Breanna 22 (grainy/quality 5.0)  today 18L/18N
+09-17 05:23:28 Anahi 22 -> {"body": "athletic", "body_confidence": 0.9, "photo_quality": 8, "swimwear": false, "curves": 8, "full_body_visible": true}
+09-17 05:23:30 LIKE Anahi 22 (curves 8)  today 19L/18N
+09-17 05:23:47 start speed=1 ratio=0.0 vision=gemini dry=False once=False
+09-17 05:23:49 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637029575.jpg text=['5:23\\u202fAM', 'now, “flash-deck” Ready to Test, Version 1.4 (25) can now be installed on your device.', '“flash-deck” Ready to Test', 'Version 1.4 (25) can now be installed on your device.']
+09-17 05:23:49 phone in use ( ), waiting
+09-17 05:24:20 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637060362.jpg text=[]
+09-17 05:24:52 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637092400.jpg text=[]
+09-17 05:25:24 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637124208.jpg text=[]
+09-17 05:25:56 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637156592.jpg text=[]
+09-17 05:26:27 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637187329.jpg text=[]
+09-17 05:26:59 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637219383.jpg text=['971 unread', 'Contact photo for Sylvester Assiamah', 'FaceTime', 'ysl', 'add', 'Dictate', 'ysl, Includes video, 5:15\\u202fAM', 'Delivered']
+09-17 05:27:31 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637251610.jpg text=['Cancel', 'Pull Day', 'Finish', 'SET', 'PREVIOUS', 'LB', 'REPS', '8–12 reps, tap to fill', '8–12 reps', 'tap to fill', 'circle', 'circle']
+09-17 05:28:03 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637283634.jpg text=['Cancel', 'Pull Day', 'Finish', 'circle', 'Add Set', 'Dips', 'More', 'SET', 'PREVIOUS', 'REPS', '8–12 reps, tap to fill', '8–12 reps']
+09-17 05:28:35 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637315406.jpg text=[]
+09-17 05:28:35 5 min in another app, reopening Bumble
+09-17 05:29:08 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637348758.jpg text=['Macros', 'Edit', 'Sep 17', '1,920', 'kcal left', 'Protein', '18 / 160 g', 'Carbs', '30 / 220 g', 'Fat', '10 / 70 g', 'Steps today']
+09-17 05:29:08 phone in use (FitX), waiting
+09-17 05:29:40 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637380472.jpg text=['Profile', 'Workouts', 'Streak', '1w', 'Lifetime volume', '0 lb', 'Trends & Predictions, Your burn, weight prediction and strength trend', 'Trends & Predictions', 'Your burn, weight prediction and strength trend', 'Muscle heat — last 7 days', 'Drag to spin · pinch to zoom', 'Rested']
+09-17 05:30:12 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637412880.jpg text=['5:30\\u202fAM']
+09-17 05:30:43 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637443962.jpg text=['5:30\\u202fAM']
+09-17 05:31:15 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637475089.jpg text=['5:31\\u202fAM']
+09-17 05:31:46 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637506146.jpg text=['5:31\\u202fAM']
+09-17 05:32:17 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637537974.jpg text=['5:32\\u202fAM']
