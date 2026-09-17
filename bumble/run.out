@@ -202,3 +202,30 @@
 09-17 06:03:29 still out of likes; sleeping until Fri 05:59
 09-17 06:11:11 still out of likes; sleeping until Fri 05:59
 09-17 06:13:02 still out of likes; sleeping until Fri 05:59
+Traceback (most recent call last):
+  File "/Users/djsly/swiper/bumble/bumble_swiper.py", line 443, in <module>
+    log(f"vision failed ({e}), using ratio")
+    
+  File "/Users/djsly/swiper/bumble/bumble_swiper.py", line 355, in main
+    if since_break >= next_break:
+    
+  File "/Users/djsly/swiper/bumble/bumble_swiper.py", line 164, in open_bumble
+    {"x": x0, "y": y0, "duration_ms": int(rnd(0, 60))},
+    {"x": int((x0 + x1) / 2), "y": ym, "duration_ms": d1},
+  File "/Users/djsly/swiper/bumble/bumble_swiper.py", line 117, in dsl
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 187, in urlopen
+    return opener.open(url, data, timeout)
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 493, in open
+    response = meth(req, response)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 602, in http_response
+    response = self.parent.error(
+        'http', request, response, code, msg, hdrs)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 531, in error
+    return self._call_chain(*args)
+           ~~~~~~~~~~~~~~~~^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 464, in _call_chain
+    result = func(*args)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 611, in http_error_default
+    raise HTTPError(req.full_url, code, msg, hdrs, fp)
+urllib.error.HTTPError: HTTP Error 404: Not Found

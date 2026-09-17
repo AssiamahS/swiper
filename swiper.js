@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.8';
+  var VERSION = '1.0.9';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -743,7 +743,7 @@
   }
   function drag(handle, el) {
     var sx, sy, ox, oy, on = false;
-    function down(e) { var p = e.touches ? e.touches[0] : e; on = true; sx = p.clientX; sy = p.clientY; var r = el.getBoundingClientRect(); ox = r.left; oy = r.top; e.preventDefault(); }
+    function down(e) { if (e.target && e.target.closest('button')) return; var p = e.touches ? e.touches[0] : e; on = true; sx = p.clientX; sy = p.clientY; var r = el.getBoundingClientRect(); ox = r.left; oy = r.top; e.preventDefault(); }
     function move(e) { if (!on) return; var p = e.touches ? e.touches[0] : e; el.style.left = Math.max(0, ox + p.clientX - sx) + 'px'; el.style.top = Math.max(0, oy + p.clientY - sy) + 'px'; el.style.right = 'auto'; el.style.bottom = 'auto'; }
     function up() { on = false; }
     handle.addEventListener('mousedown', down); window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
