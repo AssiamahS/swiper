@@ -43,9 +43,10 @@ if "--status" not in sys.argv:
 if "--start" in sys.argv:
     import subprocess
     key = subprocess.run(["security", "find-generic-password", "-s", "gemini", "-w"], capture_output=True, text=True).stdout.strip()
-    js("""(function(){var c=__swiper.cfg; c.vision.provider='gemini'; c.vision.geminiKey=%s; c.vision.enabled=true;
-      c.speed=1; c.likeRatio=0; c.vision.likeBodies='slim, athletic'; c.vision.likeMinQuality=7; c.vision.curvesAutoLike=7; c.vision.bustAutoLike=7; c.vision.sexyAutoLike=7; c.vision.unsure='nope'; c.vision.onFail='nope'; c.vision.requireFullBody=true; c.vision.maxPhotos=6; c.photosToView=[2,3]; c.vision.minFace=6; c.vision.likeFace=8; c.vision.nopeDyedHair=true; c.filters.nopeWords='liberal, leftist, feminist, socialist, antifa, blm, communist, progressive'; c.maxPerSession=100000; c.maxPerDay=100000; c.breakEvery=[100000,100001]; c.hours.enabled=false;
-      c.openProfileChance=0; c.photosToView=[1,2]; localStorage.setItem('swiper.cfg', JSON.stringify(c)); __swiper.start(); return true;})()""" % json.dumps(key))
+    orkey = subprocess.run(["security", "find-generic-password", "-s", "openrouter", "-w"], capture_output=True, text=True).stdout.strip()
+    js("""(function(){var c=__swiper.cfg; c.vision.provider='gemini'; c.vision.geminiKey=%s; c.vision.key=%s; c.vision.geminiModel='gemini-3.5-flash-lite, gemini-3.1-flash-lite'; c.vision.onFail='wait'; c.vision.proxy='http://127.0.0.1:8802/img?u='; c.vision.enabled=true;
+      c.speed=1; c.likeRatio=0; c.vision.likeBodies='slim, athletic'; c.vision.likeMinQuality=7; c.vision.curvesAutoLike=7; c.vision.bustAutoLike=7; c.vision.sexyAutoLike=7; c.vision.unsure='nope'; c.vision.requireFullBody=true; c.vision.maxPhotos=6; c.photosToView=[2,3]; c.vision.minFace=6; c.vision.likeFace=8; c.vision.nopeDyedHair=true; c.filters.nopeWords='liberal, leftist, feminist, socialist, antifa, blm, communist, progressive'; c.maxPerSession=100000; c.maxPerDay=100000; c.breakEvery=[100000,100001]; c.hours.enabled=false;
+      c.openProfileChance=0; c.photosToView=[1,2]; localStorage.setItem('swiper.cfg', JSON.stringify(c)); __swiper.start(); return true;})()""" % (json.dumps(key), json.dumps(orkey)))
     time.sleep(2)
 url = js("location.href")
 loaded = js("!!window.__swiper")

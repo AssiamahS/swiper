@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.1.2';
+  var VERSION = '1.1.3';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -56,7 +56,8 @@
       nopeDyedHair: true,
       likeBodies: '',           // e.g. 'slim, athletic' -> like when body matches and quality >= likeMinQuality
       likeMinQuality: 7,
-      onFail: 'wait'            // wait | nope | ratio when the vision call fails
+      onFail: 'wait',           // wait | nope | ratio when the vision call fails
+      proxy: ''                 // desktop only: http://127.0.0.1:8802/img?u=  (tools/imgproxy.py) when the CDN blocks CORS
     },
     geo: {
       enabled: false, lat: 40.758, lng: -73.9855, accuracy: 25,
@@ -250,9 +251,9 @@
     'group_photo = true if you cannot tell which person is the profile owner. is_woman: is the profile owner a woman (false for men, boys, or if you cannot tell). feminine: 0 = reads as a man/boy, 10 = unmistakably a woman.';
 
   function fetchImageAsDataUrl(url, maxSide) {
-    return fetch(url, { mode: 'cors', credentials: 'omit' }).then(function (r) {
-      if (!r.ok) throw new Error('img ' + r.status); return r.blob();
-    }).then(function (blob) {
+    var direct = fetch(url, { mode: 'cors', credentials: 'omit' }).then(function (r) { if (!r.ok) throw new Error('img ' + r.status); return r.blob(); });
+    var viaProxy = function () { return fetch(cfg.vision.proxy + encodeURIComponent(url)).then(function (r) { if (!r.ok) throw new Error('proxy ' + r.status); return r.blob(); }); };
+    return (cfg.vision.proxy ? viaProxy().catch(function () { return direct; }) : direct.catch(function (e) { if (cfg.vision.proxy) return viaProxy(); throw e; })).then(function (blob) {
       return new Promise(function (res, rej) {
         var img = new Image(); var o = URL.createObjectURL(blob);
         img.onload = function () {
@@ -674,6 +675,7 @@
       field('Like body types (comma)', 'vision.likeBodies', 'text', { placeholder: 'slim, athletic' }),
       field('...when photo quality >=', 'vision.likeMinQuality', 'range', { min: 0, max: 10 }),
       field('If vision fails', 'vision.onFail', 'select', { options: ['wait', 'nope', 'ratio'] }),
+      field('Photo proxy (desktop)', 'vision.proxy', 'text', { placeholder: 'http://127.0.0.1:8802/img?u=' }),
       field('Swimwear = auto like', 'vision.swimwearAutoLike', 'check'),
       field('Curves score auto like (0-10)', 'vision.curvesAutoLike', 'range', { min: 0, max: 11 }),
       field('Bust score auto like (0-10)', 'vision.bustAutoLike', 'range', { min: 0, max: 11 }),
