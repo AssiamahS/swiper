@@ -322,6 +322,11 @@ def main():
     phone.ensure_bridge()
     phone.open_bumble()
 
+    if state.get("limit_until", 0) > time.time():
+        until = state["limit_until"]; log(f"still out of likes; sleeping until {dt.datetime.fromtimestamp(until).strftime('%a %H:%M')}")
+        while time.time() < until:
+            time.sleep(min(300, until - time.time()))
+        phone.open_bumble()
     session = 0; since_break = 0; next_break = random.randint(*cfg["break_every"])
     last_key = ""; last_at = 0; last_decision = None; stuck = 0; other = 0; scrolled = 0
     log(f"start speed={cfg['speed']} ratio={cfg['like_ratio']} vision={cfg['vision']['provider']} dry={a.dry} once={a.once}")
@@ -352,7 +357,14 @@ def main():
             texts = re.findall(r'(?:StaticText|Button) "([^"]{2,90})"', tree)[:12]
             log(f"screen={kind} shot={shot} text={texts}")
         if kind == "limit":
-            log("out of likes; checking again every 30 min"); time.sleep(1800); phone.open_bumble(); continue
+            # Bumble's budget refills 24h after the moment you hit the wall (rolling), so sleep until then
+            until = time.time() + 24 * 3600 + 120
+            state["limit_until"] = until; save(STATE_PATH, state)
+            phone.tap_text(r"(?i)no thanks|not now|maybe later|close|dismiss|got it")
+            log(f"out of likes; sleeping until {dt.datetime.fromtimestamp(until).strftime('%a %H:%M')}")
+            while time.time() < until:
+                time.sleep(min(300, until - time.time()))
+            phone.open_bumble(); continue
         if kind == "empty":
             log("no more people nearby (widen distance in Filters); checking again in 30 min"); time.sleep(1800); phone.open_bumble(); continue
         if kind == "verify":

@@ -32,7 +32,12 @@ if "--status" not in sys.argv:
     if "/app/recs" not in tab["url"]:
         call("Page.navigate", url="https://tinder.com/app/recs")
         time.sleep(6)
-    if not js("!!window.__swiper"):
+    if "--local" in sys.argv:
+        # push the working copy straight in (no GitHub cache): tear down any loaded instance first
+        js("(function(){try{window.__swiper&&window.__swiper.stop()}catch(e){};var p=document.getElementById('swiper-panel');p&&p.remove();delete window.__swiper;})()")
+        js(open(__import__('os').path.join(__import__('os').path.dirname(__file__), '..', 'swiper.js')).read())
+        time.sleep(1)
+    elif not js("!!window.__swiper"):
         js(LOADER)
         time.sleep(4)
 if "--start" in sys.argv:

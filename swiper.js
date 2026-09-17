@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.4';
+  var VERSION = '1.0.5';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -648,7 +648,15 @@
       h('div', {}, [
         h('button', { 'class': 'sw-act', onclick: function () { installGeo(); pushLocation(); } }, ['Apply now']),
         h('button', { 'class': 'sw-act', onclick: function () { navigator.geolocation.getCurrentPosition(function (p) { set('geo.lat', p.coords.latitude); set('geo.lng', p.coords.longitude); log('pin set to ' + p.coords.latitude.toFixed(4) + ',' + p.coords.longitude.toFixed(4)); }, function (e) { log('gps: ' + e.message, 'warn'); }); } }, ['Use real GPS']),
-        h('button', { 'class': 'sw-act', onclick: function () { window.open('https://assiamahs.github.io/geopin/', '_blank'); } }, ['Pick on map'])
+        h('button', { 'class': 'sw-act', onclick: function () { toggleMap(); } }, ['Pick on map'])
+      ]),
+      h('div', { id: 'sw-map-wrap', style: 'display:none' }, [
+        h('div', { style: 'display:flex;gap:6px;margin:6px 0' }, [
+          h('input', { id: 'sw-map-q', type: 'text', placeholder: 'city or address', style: 'flex:1;width:auto' }),
+          h('button', { 'class': 'sw-act', onclick: function () { geocode(document.getElementById('sw-map-q').value); } }, ['Go'])
+        ]),
+        h('div', { id: 'sw-map', style: 'height:220px;border-radius:8px;overflow:hidden' }),
+        h('small', { id: 'sw-map-hint' }, ['Tap the map to drop the pin. It fills Latitude/Longitude above and pushes to Tinder if Spoof is on.'])
       ]),
       h('small', {}, ['Same override as GeoPin. New cards come from the new spot once the current stack runs out; a full page reload also refreshes it (then re-run the shortcut).'])
     );
@@ -674,6 +682,44 @@
     document.body.appendChild(panel);
     drag(head, panel);
     renderStats(); renderRun();
+  }
+  // ---- in-panel map (Leaflet + OSM tiles, Nominatim search)
+  var map = null, marker = null;
+  function loadLeaflet(cb) {
+    if (window.L && window.L.map) return cb();
+    var css = h('link', { rel: 'stylesheet', href: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' }); document.head.appendChild(css);
+    var sc = h('script', { src: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' }); sc.onload = cb; sc.onerror = function () { log('map library failed to load', 'warn'); }; document.head.appendChild(sc);
+  }
+  function setPin(lat, lng) {
+    set('geo.lat', +lat.toFixed(5)); set('geo.lng', +lng.toFixed(5));
+    var ins = panel.querySelectorAll('input[type=number]');
+    ins.forEach(function (i) { var l = i.parentElement && i.parentElement.firstChild && i.parentElement.firstChild.textContent; if (l === 'Latitude') i.value = cfg.geo.lat; if (l === 'Longitude') i.value = cfg.geo.lng; });
+    if (marker) marker.setLatLng([lat, lng]); else if (map) marker = L.marker([lat, lng]).addTo(map);
+    log('pin set to ' + cfg.geo.lat + ',' + cfg.geo.lng);
+    if (cfg.geo.enabled) { installGeo(); if (cfg.geo.pushToTinder) pushLocation(); }
+  }
+  function toggleMap() {
+    var w = document.getElementById('sw-map-wrap');
+    if (w.style.display !== 'none') { w.style.display = 'none'; return; }
+    w.style.display = '';
+    loadLeaflet(function () {
+      if (!map) {
+        map = L.map('sw-map', { zoomControl: true, attributionControl: false }).setView([cfg.geo.lat, cfg.geo.lng], 9);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+        marker = L.marker([cfg.geo.lat, cfg.geo.lng]).addTo(map);
+        map.on('click', function (e) { setPin(e.latlng.lat, e.latlng.lng); });
+      }
+      setTimeout(function () { map.invalidateSize(); }, 200);
+    });
+  }
+  function geocode(q) {
+    if (!q) return;
+    fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); }).then(function (d) {
+        if (!d.length) return log('no result for "' + q + '"', 'warn');
+        var lat = +d[0].lat, lng = +d[0].lon; setPin(lat, lng); if (map) map.setView([lat, lng], 11);
+        log('found ' + d[0].display_name.slice(0, 60));
+      }).catch(function (e) { log('search failed: ' + e.message, 'warn'); });
   }
   function drag(handle, el) {
     var sx, sy, ox, oy, on = false;
