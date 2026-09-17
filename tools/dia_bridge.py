@@ -74,12 +74,12 @@ def first_json(text):
 
 def gemini(text, imgs):
     last = None
-    for model in GEMINI_MODELS:
+    for model in [m for m in GEMINI_MODELS for _ in (0, 1)]:  # each model gets a fast retry: Gemini latency spikes past 30s now and then
         parts = [{"text": text}] + [{"inline_data": {"mime_type": ct, "data": base64.b64encode(b).decode()}} for b, ct in imgs]
         body = json.dumps({"contents": [{"parts": parts}], "generationConfig": {"temperature": 0, "maxOutputTokens": 800, "responseMimeType": "application/json"}}).encode()
         req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GKEY}", data=body, headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=45) as r:
+            with urllib.request.urlopen(req, timeout=12) as r:
                 d = json.loads(r.read())
             out = "".join(p.get("text", "") for p in d["candidates"][0]["content"]["parts"])
             v = first_json(out); v["_model"] = model; return v
