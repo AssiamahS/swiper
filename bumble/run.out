@@ -240,3 +240,4 @@ Traceback (most recent call last):
     raise RuntimeError("phone not connected to MobAI (USB unplugged?)")
 RuntimeError: phone not connected to MobAI (USB unplugged?)
 09-17 11:09:49 still out of likes; sleeping until Fri 05:59
+09-17 11:44:12 still out of likes; sleeping until Fri 05:59

@@ -113,16 +113,22 @@ def openrouter(text, imgs):
 
 
 def judge(req):
-    imgs = []
-    for u in req["urls"][:9]:
+    from concurrent.futures import ThreadPoolExecutor
+    t0 = time.time()
+    def get(u):
         try:
-            imgs.append(fetch_photo(u))
+            return fetch_photo(u)
         except Exception as e:
-            log(f"photo fetch failed: {str(e)[:60]}")
+            log(f"photo fetch failed: {str(e)[:60]}"); return None
+    with ThreadPoolExecutor(max_workers=9) as ex:
+        imgs = [x for x in ex.map(get, req["urls"][:9]) if x]
+    t1 = time.time()
     if not imgs:
         return {"error": "no photos could be fetched"}
     try:
-        return gemini(req["text"], imgs)
+        v = gemini(req["text"], imgs)
+        v["_timing"] = f"fetch {t1 - t0:.1f}s ({sum(len(b) for b, _ in imgs) // 1024}KB) model {time.time() - t1:.1f}s"
+        return v
     except Exception as e:
         log(f"gemini exhausted ({str(e)[:60]}), trying openrouter")
     try:
@@ -153,7 +159,7 @@ def main():
             for r in reqs:
                 t = time.time(); v = judge(r)
                 tab.js("window.__swiperBridge && window.__swiperBridge.deliver(%s, %s)" % (json.dumps(r["id"]), json.dumps(v)))
-                log(f"{r['id']} [{len(r['urls'])} photos] -> {('ERR ' + v['error']) if 'error' in v else (v.get('_model') + ' ' + json.dumps({k: v.get(k) for k in ('body', 'in_shape', 'face', 'full_body_visible', 'swimwear', 'dyed_hair', 'facial_piercings', 'alt_style', 'glutes', 'gym_selfie')}))} ({time.time() - t:.1f}s)")
+                log(f"{r['id']} [{len(r['urls'])} photos] -> {('ERR ' + v['error']) if 'error' in v else (v.get('_model') + ' ' + v.get('_timing', '') + ' ' + json.dumps({k: v.get(k) for k in ('body', 'in_shape', 'face', 'full_body_visible', 'swimwear', 'dyed_hair', 'facial_piercings', 'alt_style', 'glutes', 'gym_selfie')}))} ({time.time() - t:.1f}s)")
             time.sleep(0.4 if reqs else 0.8)
         except KeyboardInterrupt:
             break
