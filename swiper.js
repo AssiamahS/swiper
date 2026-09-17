@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.5';
+  var VERSION = '1.0.6';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -46,8 +46,8 @@
       minQuality: 5,          // 0..10, below = grainy/trash -> nope
       swimwearAutoLike: true,
       curvesAutoLike: 8,      // curves score >= this -> like
-      maxPhotos: 3,
-      requireFullBody: false,
+      maxPhotos: 6,
+      requireFullBody: true,
       minFeminine: 6,
       likeBodies: '',           // e.g. 'slim, athletic' -> like when body matches and quality >= likeMinQuality
       likeMinQuality: 7,
@@ -223,6 +223,7 @@
   // ---------------------------------------------------------------- vision judge
   var PROMPT = 'You are rating dating-app profile photos for a personal swipe filter. Look at ALL photos and return ONLY a JSON object, no prose, no markdown:\n' +
     '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"notes":"short"}\n' +
+    'Judge across ALL photos, not just the first. full_body_visible: true only if at least one photo shows her from head to at least mid-thigh. swimwear: true if ANY photo shows a bikini, swimsuit or lingerie. ' +
     'body: overall body size of the main person using the clearest full-body photo (plus = visibly heavy/plus-size). curves: how pronounced hips/glutes/hourglass figure are. ' +
     'photo_quality: 10 = sharp, well lit, high-res; 0 = blurry, grainy, dark, pixelated, heavy filters. grainy = true if most photos are low quality. ' +
     'group_photo = true if you cannot tell which person is the profile owner. is_woman: is the profile owner a woman (false for men, boys, or if you cannot tell). feminine: 0 = reads as a man/boy, 10 = unmistakably a woman.';
@@ -306,7 +307,7 @@
     var urls = profile.photos.slice(0, cfg.vision.maxPhotos);
     if (!urls.length) return Promise.reject(new Error('no photos'));
     return Promise.all(urls.map(function (u) {
-      return fetchImageAsDataUrl(u, 640).catch(function () { return u; }); // fall back to raw URL
+      return fetchImageAsDataUrl(u, 800).catch(function () { return u; }); // fall back to raw URL
     })).then(function (imgs) {
       var text = PROMPT + (profile.bio ? '\nProfile text: ' + profile.bio.slice(0, 300) : '');
       var viaGemini = function () { return gemini(text, imgs); };
@@ -334,11 +335,12 @@
     if (v.is_woman === false || (!isNaN(fem) && fem < (V.minFeminine || 6))) return { d: 'nope', why: 'not a woman (feminine ' + v.feminine + ')' };
     if (v.grainy === true || (!isNaN(q) && q < V.minQuality)) return { d: 'nope', why: 'grainy/quality ' + q };
     if (reject.indexOf(String(v.body).toLowerCase()) >= 0 && (isNaN(conf) || conf >= V.minBodyConf)) return { d: 'nope', why: 'body ' + v.body + ' (' + conf + ')' };
+    if (V.requireFullBody && v.full_body_visible !== true) return { d: 'nope', why: 'no full-body photo' };
     if (V.swimwearAutoLike && v.swimwear === true) return { d: 'like', why: 'swimwear' };
     if (Number(v.curves) >= V.curvesAutoLike) return { d: 'like', why: 'curves ' + v.curves };
     var likeB = (V.likeBodies || '').split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
     if (likeB.indexOf(String(v.body).toLowerCase()) >= 0 && (isNaN(conf) || conf >= V.minBodyConf) && (isNaN(q) || q >= (V.likeMinQuality || 7))) return { d: 'like', why: 'body ' + v.body + ' q' + q };
-    var unsure = (V.requireFullBody && v.full_body_visible === false) || (!isNaN(conf) && conf < V.minBodyConf);
+    var unsure = !isNaN(conf) && conf < V.minBodyConf;
     if (unsure && V.unsure !== 'ratio') return { d: V.unsure, why: 'unsure -> ' + V.unsure };
     return null; // let ratio decide
   }
@@ -621,7 +623,7 @@
       field('Reject body types', 'vision.rejectBodies', 'text', { placeholder: 'plus  or  plus, curvy' }),
       field('Min body confidence', 'vision.minBodyConf', 'range', { min: 0, max: 1, step: 0.05 }),
       field('When unsure', 'vision.unsure', 'select', { options: ['ratio', 'like', 'nope'] }),
-      field('Require full-body photo', 'vision.requireFullBody', 'check'),
+      field('Like only with a full-body photo', 'vision.requireFullBody', 'check'),
       field('Min photo quality (0-10)', 'vision.minQuality', 'range', { min: 0, max: 10 }),
       field('Min feminine score (0-10)', 'vision.minFeminine', 'range', { min: 0, max: 10 }),
       field('Like body types (comma)', 'vision.likeBodies', 'text', { placeholder: 'slim, athletic' }),

@@ -44,7 +44,7 @@ if "--start" in sys.argv:
     import subprocess
     key = subprocess.run(["security", "find-generic-password", "-s", "gemini", "-w"], capture_output=True, text=True).stdout.strip()
     js("""(function(){var c=__swiper.cfg; c.vision.provider='gemini'; c.vision.geminiKey=%s; c.vision.enabled=true;
-      c.speed=1; c.likeRatio=0; c.vision.likeBodies='slim, athletic'; c.vision.likeMinQuality=7; c.vision.curvesAutoLike=7; c.vision.unsure='nope'; c.vision.onFail='nope'; c.maxPerSession=100000; c.maxPerDay=100000; c.breakEvery=[100000,100001]; c.hours.enabled=false;
+      c.speed=1; c.likeRatio=0; c.vision.likeBodies='slim, athletic'; c.vision.likeMinQuality=7; c.vision.curvesAutoLike=7; c.vision.unsure='nope'; c.vision.onFail='nope'; c.vision.requireFullBody=true; c.vision.maxPhotos=6; c.photosToView=[2,3]; c.maxPerSession=100000; c.maxPerDay=100000; c.breakEvery=[100000,100001]; c.hours.enabled=false;
       c.openProfileChance=0; c.photosToView=[1,2]; localStorage.setItem('swiper.cfg', JSON.stringify(c)); __swiper.start(); return true;})()""" % json.dumps(key))
     time.sleep(2)
 url = js("location.href")

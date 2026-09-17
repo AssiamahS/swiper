@@ -40,7 +40,7 @@ DEFAULTS = {
         "reject_bodies": ["plus"],
         "min_body_conf": 0.5,
         "unsure": "ratio",       # like | nope | ratio
-        "require_full_body": False,
+        "require_full_body": True,
         "min_quality": 5,
         "swimwear_auto_like": True,
         "curves_auto_like": 8,
@@ -56,6 +56,7 @@ PROMPT = (
     "(they are scrolled views of one profile; ignore app chrome, buttons and text boxes) and return ONLY a JSON object, no prose:\n"
     '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,'
     '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"notes":"short"}\n'
+    "Judge across ALL images, not just the first. full_body_visible: true only if at least one image shows her from head to at least mid-thigh. swimwear: true if ANY image shows a bikini, swimsuit or lingerie. "
     "body: overall body size of the profile owner using the clearest full-body photo (plus = visibly heavy/plus-size). "
     "curves: how pronounced hips/glutes/hourglass figure are. photo_quality: 10 = sharp, well lit, high-res; "
     "0 = blurry, grainy, dark, pixelated, heavy filters. grainy = true if most photos are low quality. "
@@ -258,6 +259,8 @@ def apply_verdict(cfg, v):
         return ("nope", f"grainy/quality {q}")
     if str(v.get("body", "")).lower() in [b.lower() for b in V["reject_bodies"]] and (conf is None or conf >= V["min_body_conf"]):
         return ("nope", f"body {v.get('body')} ({conf})")
+    if V.get("require_full_body") and v.get("full_body_visible") is not True:
+        return ("nope", "no full-body photo")
     if V["swimwear_auto_like"] and v.get("swimwear") is True:
         return ("like", "swimwear")
     try:
@@ -267,7 +270,7 @@ def apply_verdict(cfg, v):
         pass
     if str(v.get("body", "")).lower() in [b.lower() for b in V.get("like_bodies", [])] and (conf is None or conf >= V["min_body_conf"]) and (q is None or q >= V.get("like_min_quality", 7)):
         return ("like", f"body {v.get('body')} q{q}")
-    unsure = (V["require_full_body"] and v.get("full_body_visible") is False) or (conf is not None and conf < V["min_body_conf"])
+    unsure = conf is not None and conf < V["min_body_conf"]
     if unsure and V["unsure"] != "ratio":
         return (V["unsure"], f"unsure -> {V['unsure']}")
     return None
