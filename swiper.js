@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.1.1';
+  var VERSION = '1.1.2';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -300,6 +300,7 @@
       var m = /^data:([^;]+);base64,(.*)$/.exec(u);
       if (m) parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
     });
+    if (parts.length < 2) return Promise.reject(new Error('no photos could be fetched'));
     var models = (cfg.vision.geminiModel || 'gemini-3.5-flash-lite').split(',').map(function (m) { return m.trim(); }).filter(Boolean);
     var i = 0;
     function tryNext(lastErr) {
@@ -350,7 +351,9 @@
       order.forEach(function (o) { if (o[1]) chain = chain.catch(function (e) { if (e && e.message !== 'no vision key') log('vision ' + e.message + ', trying next provider', 'warn'); return o[0](); }); });
       return chain;
     }).then(function (r) {
-      var v = firstJson(r.text); v._model = r.model; return v;
+      var v = firstJson(r.text); v._model = r.model;
+      if (!Number(v.face) && !Number(v.feminine) && !Number(v.photo_quality) && !Number(v.curves)) throw new Error('empty verdict from ' + r.model);
+      return v;
     });
   }
   function visionReady() { return !!(cfg.vision.geminiKey || cfg.vision.key); }
