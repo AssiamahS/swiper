@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.0';
+  var VERSION = '1.0.1';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -36,7 +36,10 @@
     vision: {
       enabled: true,
       key: '',
-      models: 'google/gemma-4-31b-it:free, nex-agi/nex-n2.5-pro:free, google/gemma-4-26b-a4b-it:free',
+      provider: 'openrouter', // openrouter | gemini
+      geminiKey: '',
+      geminiModel: 'gemini-2.5-flash-lite',
+      models: 'nex-agi/nex-n2.5-pro:free, inclusionai/ling-3.0-flash-vl:free, dots-studio/dots-3-note-preview:free, google/gemma-4-31b-it:free',
       rejectBodies: 'plus',   // comma list: slim, athletic, average, curvy, plus
       minBodyConf: 0.5,
       unsure: 'ratio',        // like | nope | ratio when body not judged confidently
@@ -74,6 +77,8 @@
 
   var cfg = deepMerge(DEFAULTS, loadJSON(LS_CFG, {}));
   function saveCfg() { saveJSON(LS_CFG, cfg); }
+  // migrate stale default model lists from older versions
+  if (cfg.vision.models === 'google/gemma-4-31b-it:free, nex-agi/nex-n2.5-pro:free, google/gemma-4-26b-a4b-it:free') { cfg.vision.models = DEFAULTS.vision.models; saveCfg(); }
 
   function today() { return new Date().toISOString().slice(0, 10); }
   var stats = loadJSON(LS_STATS, {});
@@ -247,16 +252,39 @@
         method: 'POST', signal: ctl.signal,
         headers: { 'Authorization': 'Bearer ' + cfg.vision.key, 'Content-Type': 'application/json',
                    'HTTP-Referer': 'https://assiamahs.github.io/swiper', 'X-Title': 'swiper' },
-        body: JSON.stringify({ model: model, temperature: 0, max_tokens: opts.maxTokens || 300, messages: messages })
+        body: JSON.stringify({ model: model, temperature: 0, max_tokens: opts.maxTokens || 1500, reasoning: { effort: 'low' }, messages: messages })
       }).then(function (r) { return r.json(); }).then(function (d) {
         clearTimeout(to);
         if (d.error) throw new Error(model + ': ' + (d.error.message || JSON.stringify(d.error)).slice(0, 120));
-        var c = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-        if (!c) throw new Error(model + ': empty');
-        return { model: model, text: typeof c === 'string' ? c : JSON.stringify(c) };
+        var msg = d.choices && d.choices[0] && d.choices[0].message || {};
+        var c = msg.content; if (c && typeof c !== 'string') c = JSON.stringify(c);
+        // reasoning models sometimes spend the whole budget thinking; salvage a JSON object from the reasoning text
+        if ((!c || !/\{[\s\S]*\}/.test(c)) && msg.reasoning && /\{[\s\S]*\}/.test(msg.reasoning)) c = msg.reasoning;
+        if (!c) throw new Error(model + ': empty (' + (d.choices && d.choices[0] && d.choices[0].finish_reason) + ')');
+        return { model: model, text: c };
       }).catch(function (e) { clearTimeout(to); log('llm ' + e.message, 'warn'); return tryNext(e); });
     }
     return tryNext();
+  }
+  function gemini(promptText, dataUrls, opts) {
+    opts = opts || {};
+    var parts = [{ text: promptText }];
+    dataUrls.forEach(function (u) {
+      var m = /^data:([^;]+);base64,(.*)$/.exec(u);
+      if (m) parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
+    });
+    var model = cfg.vision.geminiModel || 'gemini-2.5-flash-lite';
+    var ctl = new AbortController(); var to = setTimeout(function () { ctl.abort(); }, opts.timeout || 30000);
+    return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(cfg.vision.geminiKey), {
+      method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: { temperature: 0, maxOutputTokens: opts.maxTokens || 800, responseMimeType: 'application/json' } })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      clearTimeout(to);
+      if (d.error) throw new Error('gemini: ' + (d.error.message || '').slice(0, 120));
+      var c = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts && d.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join('');
+      if (!c) throw new Error('gemini: empty');
+      return { model: model, text: c };
+    });
   }
   function judge(profile) {
     var urls = profile.photos.slice(0, cfg.vision.maxPhotos);
@@ -264,7 +292,9 @@
     return Promise.all(urls.map(function (u) {
       return fetchImageAsDataUrl(u, 640).catch(function () { return u; }); // fall back to raw URL
     })).then(function (imgs) {
-      var content = [{ type: 'text', text: PROMPT + (profile.bio ? '\nProfile text: ' + profile.bio.slice(0, 300) : '') }];
+      var text = PROMPT + (profile.bio ? '\nProfile text: ' + profile.bio.slice(0, 300) : '');
+      if (cfg.vision.provider === 'gemini' && cfg.vision.geminiKey) return gemini(text, imgs);
+      var content = [{ type: 'text', text: text }];
       imgs.forEach(function (u) { content.push({ type: 'image_url', image_url: { url: u } }); });
       return llm([{ role: 'user', content: content }]);
     }).then(function (r) {
@@ -272,6 +302,7 @@
       var v = JSON.parse(m[0]); v._model = r.model; return v;
     });
   }
+  function visionReady() { return cfg.vision.provider === 'gemini' ? !!cfg.vision.geminiKey : !!cfg.vision.key; }
   function applyVerdict(v) {
     var V = cfg.vision;
     var reject = V.rejectBodies.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
@@ -434,7 +465,7 @@
     for (var i = 1; i < view; i++) chain = chain.then(function () { nextPhoto(card); return sleep(rnd(500, 1600)); });
     return chain.then(function () {
       p.photos = photoUrls(card);
-      if (!dec && cfg.vision.enabled && cfg.vision.key && p.photos.length) {
+      if (!dec && cfg.vision.enabled && visionReady() && p.photos.length) {
         setStatus('judging ' + (p.name || 'card') + '...');
         return judge(p).then(function (v) {
           stats.judged++; var r = applyVerdict(v);
@@ -460,7 +491,7 @@
   }
   function start() {
     if (running) return;
-    if (cfg.vision.enabled && !cfg.vision.key) log('vision on but no OpenRouter key: ratio mode only', 'warn');
+    if (cfg.vision.enabled && !visionReady()) log('vision on but no key for ' + cfg.vision.provider + ': ratio mode only', 'warn');
     running = true; sessionSwipes = 0; sinceBreak = 0; scheduleBreak(); lastCardKey = '';
     if (cfg.geo.enabled) { installGeo(); if (cfg.geo.pushToTinder) pushLocation(); }
     if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }).catch(function () {});
@@ -555,8 +586,11 @@
     // Vision
     bodies.Vision.append(
       field('Vision judge on', 'vision.enabled', 'check'),
+      field('Provider', 'vision.provider', 'select', { options: ['openrouter', 'gemini'] }),
       field('OpenRouter key', 'vision.key', 'password', { placeholder: 'sk-or-v1-...' }),
       field('Models (comma, first wins)', 'vision.models', 'textarea'),
+      field('Gemini key (aistudio.google.com/apikey)', 'vision.geminiKey', 'password', { placeholder: 'AIza...' }),
+      field('Gemini model', 'vision.geminiModel', 'text'),
       field('Reject body types', 'vision.rejectBodies', 'text', { placeholder: 'plus  or  plus, curvy' }),
       field('Min body confidence', 'vision.minBodyConf', 'range', { min: 0, max: 1, step: 0.05 }),
       field('When unsure', 'vision.unsure', 'select', { options: ['ratio', 'like', 'nope'] }),
@@ -570,7 +604,7 @@
         log('testing vision on ' + (p.name || 'card') + ' (' + p.photos.length + ' photos)');
         judge(p).then(function (v) { log('verdict: ' + JSON.stringify(v)); var r = applyVerdict(v); log('decision: ' + (r ? r.d + ' (' + r.why + ')' : 'ratio')); }).catch(function (e) { log('vision test failed: ' + e.message, 'warn'); });
       } }, ['Test on current card'])]),
-      h('small', {}, ['Body type is an estimate from photos, not a scale. "plus" is the visibly heavy bucket; add "curvy" to reject more aggressively. Free models rate-limit sometimes; the list falls through in order.'])
+      h('small', {}, ['Body type is an estimate from photos, not a scale. "plus" is the visibly heavy bucket; add "curvy" to reject more aggressively. Free OpenRouter models rate-limit sometimes; the list falls through in order. Gemini provider = a free Google AI Studio key, faster and steadier.'])
     );
     // Geo
     bodies.Geo.append(
