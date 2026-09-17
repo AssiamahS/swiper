@@ -60,9 +60,9 @@ PROMPT = (
     "You are rating dating-app profile screenshots for a personal swipe filter. Look at ALL images "
     "(they are scrolled views of one profile; ignore app chrome, buttons and text boxes) and return ONLY a JSON object, no prose:\n"
     '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,'
-    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"notes":"short"}\n'
+    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"notes":"short"}\n'
     "bust: how large/prominent her chest is (0-10). sexy_vibe: how provocative, flirty or slutty the vibe is (tongue out, suggestive poses, revealing outfits, lingerie; 0 = wholesome, 10 = very provocative). "
-    "face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true if hair is an unnatural color (pink, blue, green, purple, etc). "
+    "face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true ONLY for obviously unnatural colors (pink, blue, green, purple, bright red); blonde, highlights, balayage, auburn and ombre are natural = false. in_shape: true if she looks fit or slim-to-average with a toned or curvy figure, false if overweight. "
     "Judge across ALL images, not just the first. full_body_visible: true only if at least one image shows her from head to at least mid-thigh. swimwear: true if ANY image shows a bikini, swimsuit or lingerie. "
     "body: overall body size of the profile owner using the clearest full-body photo (plus = visibly heavy/plus-size). "
     "curves: how pronounced hips/glutes/hourglass figure are. photo_quality: 10 = sharp, well lit, high-res; "
@@ -266,6 +266,9 @@ def apply_verdict(cfg, v):
         return ("nope", f"grainy/quality {q}")
     if str(v.get("body", "")).lower() in [b.lower() for b in V["reject_bodies"]] and (conf is None or conf >= V["min_body_conf"]):
         return ("nope", f"body {v.get('body')} ({conf})")
+    if V["swimwear_auto_like"] and v.get("swimwear") is True and v.get("in_shape") is not False \
+            and str(v.get("body", "")).lower() != "plus" and not (V.get("nope_dyed_hair") and v.get("dyed_hair") is True):
+        return ("like", f"bikini, {v.get('body')}")
     face = v.get("face"); face = float(face) if isinstance(face, (int, float)) else None
     if face is not None and face < V.get("min_face", 0):
         return ("nope", f"face {face}")

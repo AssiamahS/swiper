@@ -114,7 +114,7 @@ def openrouter(text, imgs):
 
 def judge(req):
     imgs = []
-    for u in req["urls"][:6]:
+    for u in req["urls"][:9]:
         try:
             imgs.append(fetch_photo(u))
         except Exception as e:
@@ -153,7 +153,7 @@ def main():
             for r in reqs:
                 t = time.time(); v = judge(r)
                 tab.js("window.__swiperBridge && window.__swiperBridge.deliver(%s, %s)" % (json.dumps(r["id"]), json.dumps(v)))
-                log(f"{r['id']} [{len(r['urls'])} photos] -> {('ERR ' + v['error']) if 'error' in v else (v.get('_model') + ' ' + json.dumps({k: v.get(k) for k in ('body', 'face', 'full_body_visible', 'swimwear', 'curves')}))} ({time.time() - t:.1f}s)")
+                log(f"{r['id']} [{len(r['urls'])} photos] -> {('ERR ' + v['error']) if 'error' in v else (v.get('_model') + ' ' + json.dumps({k: v.get(k) for k in ('body', 'in_shape', 'face', 'full_body_visible', 'swimwear', 'dyed_hair')}))} ({time.time() - t:.1f}s)")
             time.sleep(0.4 if reqs else 0.8)
         except KeyboardInterrupt:
             break

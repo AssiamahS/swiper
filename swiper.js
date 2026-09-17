@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.1.4';
+  var VERSION = '1.2.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -46,7 +46,7 @@
       minQuality: 5,          // 0..10, below = grainy/trash -> nope
       swimwearAutoLike: true,
       curvesAutoLike: 7,      // curves score >= this -> like
-      maxPhotos: 6,
+      maxPhotos: 9,
       requireFullBody: true,
       minFeminine: 6,
       bustAutoLike: 7,          // like at/above (still needs a full-body photo)
@@ -182,6 +182,12 @@
     });
     return out;
   }
+  function photoCount(card) {
+    // the photo bullets are buttons labelled "Photo 1".."Photo N"
+    var n = 0;
+    card.querySelectorAll('button[aria-label^="Photo "]').forEach(function (b) { var m = /^Photo (\d+)$/.exec(b.getAttribute('aria-label') || ''); if (m) n = Math.max(n, +m[1]); });
+    return n;
+  }
   function nextPhoto(card) {
     var before = photoUrls(card).length;
     var b = card.querySelector('button[aria-label="Next Photo"], button[aria-label*="next photo" i]');
@@ -242,9 +248,9 @@
 
   // ---------------------------------------------------------------- vision judge
   var PROMPT = 'You are rating dating-app profile photos for a personal swipe filter. Look at ALL photos and return ONLY a JSON object, no prose, no markdown:\n' +
-    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"notes":"short"}\n' +
+    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"notes":"short"}\n' +
     'bust: how large/prominent her chest is (0-10). sexy_vibe: how provocative, flirty or slutty the vibe is (tongue out, suggestive poses, revealing outfits, lingerie; 0 = wholesome, 10 = very provocative). ' +
-    'face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true if hair is an unnatural color (pink, blue, green, purple, etc). ' +
+    'face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true ONLY for obviously unnatural colors (pink, blue, green, purple, bright red); blonde, highlights, balayage, auburn and ombre are natural = false. in_shape: true if she looks fit or slim-to-average with a toned or curvy figure, false if overweight. ' +
     'Judge across ALL photos, not just the first. full_body_visible: true only if at least one photo shows her from head to at least mid-thigh. swimwear: true if ANY photo shows a bikini, swimsuit or lingerie. ' +
     'body: overall body size of the main person using the clearest full-body photo (plus = visibly heavy/plus-size). curves: how pronounced hips/glutes/hourglass figure are. ' +
     'photo_quality: 10 = sharp, well lit, high-res; 0 = blurry, grainy, dark, pixelated, heavy filters. grainy = true if most photos are low quality. ' +
@@ -383,6 +389,9 @@
     if (v.is_woman === false || (!isNaN(fem) && fem < (V.minFeminine || 6))) return { d: 'nope', why: 'not a woman (feminine ' + v.feminine + ')' };
     if (v.grainy === true || (!isNaN(q) && q < V.minQuality)) return { d: 'nope', why: 'grainy/quality ' + q };
     if (reject.indexOf(String(v.body).toLowerCase()) >= 0 && (isNaN(conf) || conf >= V.minBodyConf)) return { d: 'nope', why: 'body ' + v.body + ' (' + conf + ')' };
+    // a swimsuit photo shows the body: fit + sexy = like, before the face/quality/full-body checks
+    if (V.swimwearAutoLike && v.swimwear === true && v.in_shape !== false && String(v.body).toLowerCase() !== 'plus' && !(V.nopeDyedHair && v.dyed_hair === true))
+      return { d: 'like', why: 'bikini, ' + v.body };
     var face = Number(v.face);
     if (!isNaN(face) && face < (V.minFace || 0)) return { d: 'nope', why: 'face ' + face };
     if (V.nopeDyedHair && v.dyed_hair === true) return { d: 'nope', why: 'dyed hair' };
@@ -543,16 +552,23 @@
     lastCardKey = ck; lastCardAt = Date.now(); lastDecision = null; stuckRetries = 0; lastProfile = p;
 
     var dec = textDecision(p);
-    var view = dec ? 0 : rndInt(cfg.photosToView[0], cfg.photosToView[1]);
-    var chain = Promise.resolve();
-    for (var i = 1; i < view; i++) chain = chain.then(function () { nextPhoto(card); return sleep(rnd(500, 1600)); });
+    var seen = {}, all = [];
+    function collect() { photoUrls(card).forEach(function (u) { var k = u.split('?')[0]; if (!seen[k]) { seen[k] = 1; all.push(u); } }); }
+    collect();
+    var total = Math.min(9, photoCount(card) || cfg.vision.maxPhotos);
+    var chain = Promise.resolve(), idle = 0;
+    if (!dec) for (var i = 1; i < total; i++) chain = chain.then(function () {
+      if (idle >= 2) return;
+      var n = all.length; nextPhoto(card);
+      return sleep(rnd(350, 700)).then(function () { collect(); idle = all.length > n ? 0 : idle + 1; });
+    });
     return chain.then(function () {
-      p.photos = photoUrls(card);
+      p.photos = all.length ? all : photoUrls(card);
       if (!dec && cfg.vision.enabled && visionReady() && p.photos.length) {
         setStatus('judging ' + (p.name || 'card') + '...');
         return judge(p).then(function (v) {
           stats.judged++; var r = applyVerdict(v);
-          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, bust: v.bust, sexy: v.sexy_vibe, dyed: v.dyed_hair, fem: v.feminine }) + ' [' + v._model + ']');
+          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, bust: v.bust, sexy: v.sexy_vibe, fit: v.in_shape, full: v.full_body_visible, dyed: v.dyed_hair, n: p.photos.length }) + ' [' + v._model + ']');
           return r;
         }).catch(function (e) {
           if (cfg.vision.onFail === 'nope') { log('vision failed (' + e.message + '), nope', 'warn'); return { d: 'nope', why: 'vision failed' }; }
