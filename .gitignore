@@ -4,3 +4,4 @@ bumble/state.json
 bumble/log.txt
 bumble/config.json
 tools/certs/
+bumble/.lock

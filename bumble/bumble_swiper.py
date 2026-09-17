@@ -334,12 +334,27 @@ def today():
     return dt.date.today().isoformat()
 
 
+def single_instance():
+    """One bot per phone: a second copy would fight the first for the screen."""
+    import fcntl
+    global _LOCK
+    _LOCK = open(os.path.join(HERE, ".lock"), "w")
+    try:
+        fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("another bumble_swiper is already running; stop it first:  pkill -f bumble_swiper.py", file=sys.stderr)
+        sys.exit(1)
+    _LOCK.write(str(os.getpid())); _LOCK.flush()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="judge the current card only, no swipe")
     ap.add_argument("--dry", action="store_true", help="loop but never swipe")
     ap.add_argument("--max", type=int, default=0, help="stop after N cards")
     a = ap.parse_args()
+    if not a.once:
+        single_instance()
 
     cfg = merge(DEFAULTS, load(CFG_PATH, {}))
     save(CFG_PATH, cfg)
