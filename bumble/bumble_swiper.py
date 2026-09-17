@@ -131,9 +131,9 @@ class Phone:
                 raise RuntimeError(f"bridge not running and start failed: {e}")
             time.sleep(3)
 
-    def observe(self):
-        d = self.dsl([{"action": "wait_for", "stable": True, "timeout_ms": 2500},
-                      {"action": "observe", "include": ["ui_tree", "screenshot"], "compact": True}])
+    def observe(self, screenshot=True):
+        d = self.dsl([{"action": "wait_for", "stable": True, "timeout_ms": 1200},
+                      {"action": "observe", "include": ["ui_tree", "screenshot"] if screenshot else ["ui_tree"], "compact": True}])
         for s in d["step_results"]:
             if s["action"] == "observe":
                 n = s["result"]["observations"]["native"]
@@ -396,9 +396,9 @@ def main():
         state["likes" if dec[0] == "like" else "nopes"] += 1; save(STATE_PATH, state)
         session += 1; since_break += 1
         log(f"{dec[0].upper()} {p['name']} {p['age']} ({dec[1]})  today {state['likes']}L/{state['nopes']}N")
-        time.sleep(rnd(1.2, 2.5))
+        time.sleep(rnd(1.0, 1.8))
         try:
-            t2, _ = phone.observe()
+            t2, _ = phone.observe(screenshot=False)
             if screen_kind(t2) == "card" and parse_card(t2)["name"] == p["name"] and p["name"]:
                 log("  deck did not advance yet")
         except Exception:
