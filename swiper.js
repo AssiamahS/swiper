@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.1';
+  var VERSION = '1.0.2';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -38,7 +38,7 @@
       key: '',
       provider: 'openrouter', // openrouter | gemini
       geminiKey: '',
-      geminiModel: 'gemini-2.5-flash-lite',
+      geminiModel: 'gemini-3.1-flash-lite',
       models: 'nex-agi/nex-n2.5-pro:free, inclusionai/ling-3.0-flash-vl:free, dots-studio/dots-3-note-preview:free, google/gemma-4-31b-it:free',
       rejectBodies: 'plus',   // comma list: slim, athletic, average, curvy, plus
       minBodyConf: 0.5,
@@ -79,6 +79,7 @@
   function saveCfg() { saveJSON(LS_CFG, cfg); }
   // migrate stale default model lists from older versions
   if (cfg.vision.models === 'google/gemma-4-31b-it:free, nex-agi/nex-n2.5-pro:free, google/gemma-4-26b-a4b-it:free') { cfg.vision.models = DEFAULTS.vision.models; saveCfg(); }
+  if (cfg.vision.geminiModel === 'gemini-2.5-flash-lite') { cfg.vision.geminiModel = DEFAULTS.vision.geminiModel; saveCfg(); } // retired for new keys
 
   function today() { return new Date().toISOString().slice(0, 10); }
   var stats = loadJSON(LS_STATS, {});
@@ -273,7 +274,7 @@
       var m = /^data:([^;]+);base64,(.*)$/.exec(u);
       if (m) parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
     });
-    var model = cfg.vision.geminiModel || 'gemini-2.5-flash-lite';
+    var model = cfg.vision.geminiModel || 'gemini-3.1-flash-lite';
     var ctl = new AbortController(); var to = setTimeout(function () { ctl.abort(); }, opts.timeout || 30000);
     return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(cfg.vision.geminiKey), {
       method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
@@ -293,16 +294,24 @@
       return fetchImageAsDataUrl(u, 640).catch(function () { return u; }); // fall back to raw URL
     })).then(function (imgs) {
       var text = PROMPT + (profile.bio ? '\nProfile text: ' + profile.bio.slice(0, 300) : '');
-      if (cfg.vision.provider === 'gemini' && cfg.vision.geminiKey) return gemini(text, imgs);
-      var content = [{ type: 'text', text: text }];
-      imgs.forEach(function (u) { content.push({ type: 'image_url', image_url: { url: u } }); });
-      return llm([{ role: 'user', content: content }]);
+      var viaGemini = function () { return gemini(text, imgs); };
+      var viaOpenRouter = function () {
+        var content = [{ type: 'text', text: text }];
+        imgs.forEach(function (u) { content.push({ type: 'image_url', image_url: { url: u } }); });
+        return llm([{ role: 'user', content: content }]);
+      };
+      // preferred provider first, the other one as a fallback when it has a key
+      var order = cfg.vision.provider === 'gemini' ? [[viaGemini, !!cfg.vision.geminiKey], [viaOpenRouter, !!cfg.vision.key]]
+                                                  : [[viaOpenRouter, !!cfg.vision.key], [viaGemini, !!cfg.vision.geminiKey]];
+      var chain = Promise.reject(new Error('no vision key'));
+      order.forEach(function (o) { if (o[1]) chain = chain.catch(function (e) { if (e && e.message !== 'no vision key') log('vision ' + e.message + ', trying next provider', 'warn'); return o[0](); }); });
+      return chain;
     }).then(function (r) {
       var m = r.text.match(/\{[\s\S]*\}/); if (!m) throw new Error('no json from ' + r.model);
       var v = JSON.parse(m[0]); v._model = r.model; return v;
     });
   }
-  function visionReady() { return cfg.vision.provider === 'gemini' ? !!cfg.vision.geminiKey : !!cfg.vision.key; }
+  function visionReady() { return !!(cfg.vision.geminiKey || cfg.vision.key); }
   function applyVerdict(v) {
     var V = cfg.vision;
     var reject = V.rejectBodies.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
