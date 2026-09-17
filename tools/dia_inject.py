@@ -35,8 +35,17 @@ if "--status" not in sys.argv:
     if not js("!!window.__swiper"):
         js(LOADER)
         time.sleep(4)
+if "--start" in sys.argv:
+    import subprocess
+    key = subprocess.run(["security", "find-generic-password", "-s", "gemini", "-w"], capture_output=True, text=True).stdout.strip()
+    js("""(function(){var c=__swiper.cfg; c.vision.provider='gemini'; c.vision.geminiKey=%s; c.vision.enabled=true;
+      c.speed=1; c.likeRatio=0; c.vision.likeBodies='slim, athletic'; c.vision.likeMinQuality=7; c.vision.curvesAutoLike=7; c.vision.unsure='nope'; c.vision.onFail='nope'; c.maxPerSession=100000; c.maxPerDay=100000; c.breakEvery=[100000,100001]; c.hours.enabled=false;
+      c.openProfileChance=0; c.photosToView=[1,2]; localStorage.setItem('swiper.cfg', JSON.stringify(c)); __swiper.start(); return true;})()""" % json.dumps(key))
+    time.sleep(2)
 url = js("location.href")
 loaded = js("!!window.__swiper")
 ver = js("window.__swiper && window.__swiper.version")
 logged_in = js("!!localStorage.getItem('TinderWeb/APIToken')")
-print(json.dumps({"url": url, "swiper_loaded": loaded, "version": ver, "logged_in": logged_in}))
+running = js("!!(window.__swiper && document.querySelector('#swiper-panel .sw-run.on'))")
+status = js("(document.querySelector('#swiper-panel .sw-status')||{}).textContent")
+print(json.dumps({"url": url, "swiper_loaded": loaded, "version": ver, "logged_in": logged_in, "running": running, "status": status}))

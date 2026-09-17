@@ -107,3 +107,95 @@
 09-17 05:31:15 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637475089.jpg text=['5:31\\u202fAM']
 09-17 05:31:46 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637506146.jpg text=['5:31\\u202fAM']
 09-17 05:32:17 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637537974.jpg text=['5:32\\u202fAM']
+09-17 05:36:38 start speed=1 ratio=0.0 vision=gemini dry=False once=False
+09-17 05:36:40 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637800021.jpg text=['Settings', 'Mac engine', 'Test connection', 'bad token', 'Text commands (iMessage to yourself)', 'ig yes @user', 'ig no @user <what to change>', 'ig say @user <text>']
+09-17 05:36:40 phone in use (InstaFollowUp), waiting
+09-17 05:37:11 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637831439.jpg text=['More', 'Scout', 'DJ leads', 'People', 'Market, All markets', 'All markets', "tagged venue 'El Techo' in 'philadelphia rooftop bar' posts", 'You asked, we answered 💬 Here’s everything you need to know!', 'Pass', 'Pitch', 'Pitch = queued for a DJ opener that you approve before it sends.', '4 waiting']
+09-17 05:37:42 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637862535.jpg text=['More', 'Scout', 'DJ leads', 'People', 'Market, All markets', 'All markets', 'Pass', 'Like', 'Like = queued for an opener you approve before it sends. Pass teaches the scout.', '19 waiting', 'Inbox', 'Scout']
+09-17 05:38:13 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637893510.jpg text=['Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle', 'Crop and scale', 'Detect Text']
+09-17 05:38:44 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637924238.jpg text=['Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle', 'Crop and scale', 'Detect Text']
+09-17 05:39:15 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637955210.jpg text=['Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle', 'Crop and scale', 'Detect Text']
+09-17 05:39:46 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789637986446.jpg text=['More', 'Scout', 'DJ leads', 'People', 'Market, All markets', 'All markets', 'Pass', 'Like', 'Like = queued for an opener you approve before it sends. Pass teaches the scout.', '16 waiting', 'Inbox', 'Scout']
+09-17 05:40:17 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638017514.jpg text=['Close', 'Markup', 'Share', 'Done', 'Top left crop handle', 'Top crop handle', 'Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle']
+09-17 05:40:48 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638048272.jpg text=['Close', 'Markup', 'Share', 'Done', 'Top left crop handle', 'Top crop handle', 'Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle']
+09-17 05:41:19 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638079187.jpg text=['Close', 'Markup', 'Share', 'Done', 'Top left crop handle', 'Top crop handle', 'Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle']
+09-17 05:41:19 5 min in another app, reopening Bumble
+09-17 05:41:53 Amelia 22 -> {"body": "slim", "body_confidence": 0.7, "photo_quality": 7, "swimwear": false, "curves": 3, "is_woman": true, "feminine": 9}
+09-17 05:41:55 LIKE Amelia 22 (body slim q7.0)  today 20L/18N
+09-17 05:42:05 Soukayna 21 -> {"body": "slim", "body_confidence": 0.9, "photo_quality": 7, "swimwear": false, "curves": 4, "is_woman": true, "feminine": 10}
+09-17 05:42:08 LIKE Soukayna 21 (body slim q7.0)  today 21L/18N
+09-17 05:42:13 Liany 21 -> {"body": "slim", "body_confidence": 0.9, "photo_quality": 9, "swimwear": false, "curves": 6, "is_woman": true, "feminine": 10}
+09-17 05:42:15 LIKE Liany 21 (body slim q9.0)  today 22L/18N
+09-17 05:42:22 Elane 19 -> {"body": "slim", "body_confidence": 0.9, "photo_quality": 7, "swimwear": false, "curves": 6, "is_woman": true, "feminine": 10}
+09-17 05:42:25 LIKE Elane 19 (body slim q7.0)  today 23L/18N
+09-17 05:42:31 Mya 18 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 7, "swimwear": false, "curves": 4, "is_woman": true, "feminine": 10}
+09-17 05:42:35 NOPE Mya 18 (ratio)  today 23L/19N
+09-17 05:42:46 Val 22 -> {"body": "athletic", "body_confidence": 0.9, "photo_quality": 9, "swimwear": false, "curves": 5, "is_woman": true, "feminine": 10}
+09-17 05:42:49 LIKE Val 22 (body athletic q9.0)  today 24L/19N
+09-17 05:42:57 Sophia 19 -> {"body": "slim", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 4, "is_woman": true, "feminine": 10}
+09-17 05:42:59 LIKE Sophia 19 (body slim q8.0)  today 25L/19N
+09-17 05:43:03 Connie 22 -> {"body": "average", "body_confidence": 0.7, "photo_quality": 6, "swimwear": false, "curves": 4, "is_woman": true, "feminine": 10}
+09-17 05:43:06 NOPE Connie 22 (ratio)  today 25L/20N
+09-17 05:43:13 Marina 20 -> {"body": "slim", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 3, "is_woman": true, "feminine": 10}
+09-17 05:43:16 LIKE Marina 20 (body slim q8.0)  today 26L/20N
+09-17 05:43:19 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638199566.jpg text=['5:43\\u202fAM', 'Return to InstaFollowUp', 'Sylvester Assiamah via TestFlight', 'flash-deck 1.4 (27) for iOS is now available to test.']
+09-17 05:43:19 phone in use ( ), waiting
+09-17 05:43:57 Camille 21 -> {"body": "curvy", "body_confidence": 0.7, "photo_quality": 7, "swimwear": false, "curves": 7, "is_woman": true, "feminine": 10}
+09-17 05:43:59 LIKE Camille 21 (curves 7)  today 27L/20N
+09-17 05:44:07 Hillary 20 -> {"body": "average", "body_confidence": 0.2, "photo_quality": 4, "swimwear": false, "curves": 5, "is_woman": true, "feminine": 10}
+09-17 05:44:08 NOPE Hillary 20 (grainy/quality 4.0)  today 27L/21N
+09-17 05:44:14 Abigail 21 -> {"body": "slim", "body_confidence": 0.6, "photo_quality": 3, "swimwear": false, "curves": 3, "is_woman": true, "feminine": 10}
+09-17 05:44:17 NOPE Abigail 21 (grainy/quality 3.0)  today 27L/22N
+09-17 05:44:27 Johanna 19 -> {"body": "athletic", "body_confidence": 0.8, "photo_quality": 4, "swimwear": false, "curves": 6, "is_woman": true, "feminine": 10}
+09-17 05:44:29 NOPE Johanna 19 (grainy/quality 4.0)  today 27L/23N
+09-17 05:44:37 Maria 19 -> {"body": "average", "body_confidence": 0.5, "photo_quality": 8, "swimwear": false, "curves": 5, "is_woman": true, "feminine": 10}
+09-17 05:44:40 NOPE Maria 19 (ratio)  today 27L/24N
+09-17 05:44:49 Rose 19 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 6, "is_woman": true, "feminine": 10}
+09-17 05:44:51 NOPE Rose 19 (ratio)  today 27L/25N
+09-17 05:44:56 Kylie 22 -> {"body": "slim", "body_confidence": 0.5, "photo_quality": 6, "swimwear": false, "curves": 1, "is_woman": true, "feminine": 4}
+09-17 05:44:57 NOPE Kylie 22 (not a woman (feminine 4.0))  today 27L/26N
+09-17 05:45:10 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638310655.jpg text=['Edit', 'Messages', 'Contact photo for Mom', 'Contact photo for Dad', 'Dad', 'Contact photo for Chance', 'Chance', 'Contact photo for me', 'me', 'Contact photo for HUBBARD,DENNIS', 'HUBBARD,DENNIS', 'Contact photo for larry']
+09-17 05:45:10 phone in use (Messages), waiting
+09-17 05:45:41 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638341670.jpg text=['Close', 'Markup', 'Share', 'Done', 'Top left crop handle', 'Top crop handle', 'Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle']
+09-17 05:46:12 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638372579.jpg text=['Close', 'Markup', 'Share', 'Done', 'Top left crop handle', 'Top crop handle', 'Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle']
+09-17 05:46:43 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638403384.jpg text=['Close', 'Markup', 'Share', 'Done', 'Top left crop handle', 'Top crop handle', 'Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle']
+09-17 05:47:14 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638434347.jpg text=['Close', 'Markup', 'Share', 'Done', 'Top left crop handle', 'Top crop handle', 'Top right crop handle', 'Left crop handle', 'Right crop handle', 'Bottom left crop handle', 'Bottom crop handle', 'Bottom right crop handle']
+09-17 05:47:45 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638465319.jpg text=['Back', 'Today', '5:45\\u202fAM', 'More', 'Detect Text', 'Share', 'Info', 'Edit', 'Delete']
+09-17 05:48:17 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638497199.jpg text=['Playbooks', 'default', 'dj_pitch', 'personal', 'How the bot talks and what it may promise', 'Save playbook']
+09-17 05:48:48 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638528613.jpg text=['Filter, All', 'All', 'Inbox', 'Syncing', 'stratusloungephl, 2m ago, Ask me, draft waiting, pitch', 'stratusloungephl', '2m ago', 'Ask me', 'draft waiting', 'pitch', 'eltechophilly, 3m ago, Ask me, draft waiting, pitch', 'eltechophilly']
+09-17 05:49:20 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638560222.jpg text=['Filter, All', 'All', 'Syncing', 'Inbox', 'bi.peony, 2m ago, Ask me, draft waiting, reach', 'bi.peony', '2m ago', 'Ask me', 'draft waiting', 'reach', 'stratusloungephl, 2m ago, Ask me, draft waiting, pitch', 'stratusloungephl']
+09-17 05:49:51 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638591317.jpg text=['More', 'Scout', 'DJ leads', 'People', 'Market, All markets', 'All markets', '8 decisions · likes: 1, best, girlswhotravel, girls, favorite, bad', '8 waiting', 'Inbox', 'Scout', 'Outreach', 'Playbooks']
+09-17 05:49:51 5 min in another app, reopening Bumble
+09-17 05:50:26 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638626128.jpg text=['More', 'Scout', 'DJ leads', 'People', 'Market, All markets', 'All markets', '12 decisions · likes: birthdayqueen, gym, dreams, post, grown, into', 'curves 7, average · posted under #charlottegirls: \\', 'Turnt It Up Another Notch ‼️🥹🤍🩷💦🔥💳 \\n\\nSHARE \\nSHARE\\nSHARE YALLLLL ‼️🤞🏾🩷🩷🫶🏿🔥🔥🔥\\nTesehkii', 'Pass', 'Like', 'Like = queued for an opener you approve before it sends. Pass teaches the scout.']
+09-17 05:50:26 phone in use (InstaFollowUp), waiting
+09-17 05:50:57 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638657087.jpg text=['More', 'Scout', 'DJ leads', 'People', 'Market, All markets', 'All markets', '15 decisions · likes: birthdayqueen, gym, dreams, post, grown, girlswhotravel', 'Pass', 'Like', 'Like = queued for an opener you approve before it sends. Pass teaches the scout.', '3 waiting', 'Inbox']
+09-17 05:51:27 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638687935.jpg text=['More', 'Scout', 'DJ leads', 'People', 'Market, All markets', 'All markets', '17 decisions · likes: birthdayqueen, gym, dreams, post, grown, girlswhotravel', '@from356798', '-36.3', '3,482 followers', '살기 위해 운동하는 대학원생', 'NYC']
+09-17 05:51:59 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638719946.jpg text=['971 unread', 'Contact photo for Sylvester Assiamah', 'FaceTime', 'ysl', 'add', 'Dictate']
+09-17 05:52:31 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638751701.jpg text=['Render review ', '— tap your verdict', 'Ms. Jackson · 2026-09-16 — post it?', 'Back', 'Page Menu', 'refresh', 'More']
+09-17 05:53:03 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638783486.jpg text=['Ms. Jackson · 2026-09-16 — post it?', 'YES — looks good', 'NO']
+09-17 05:53:35 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638815277.jpg text=['Ms. Jackson · 2026-09-16 — post it?', 'NO — This isn’t as good as biggie no video just a static image and words Boring as heck', '(2026-09-17 05:53:24)']
+09-17 05:54:06 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638846086.jpg text=['Ms. Jackson · 2026-09-16 — post it?', 'NO — This isn’t as good as biggie no video just a static image and words Boring as heck', '(2026-09-17 05:53:24)']
+09-17 05:54:36 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638876876.jpg text=['Ms. Jackson · 2026-09-16 — post it?', 'NO — This isn’t as good as biggie no video just a static image and words Boring as heck', '(2026-09-17 05:53:24)']
+09-17 05:55:07 screen=other shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789638907702.jpg text=['Ms. Jackson · 2026-09-16 — post it?', 'NO — This isn’t as good as biggie no video just a static image and words Boring as heck', '(2026-09-17 05:53:24)']
+09-17 05:55:07 5 min in another app, reopening Bumble
+09-17 05:55:45 ad/promo card, passing
+09-17 05:55:50 Gabrielle 22 -> {"body": "average", "body_confidence": 0.9, "photo_quality": 8, "swimwear": false, "curves": 6, "is_woman": true, "feminine": 10}
+09-17 05:55:52 NOPE Gabrielle 22 (ratio)  today 27L/27N
+09-17 05:55:59 Erika 22 -> {"body": "athletic", "body_confidence": 0.9, "photo_quality": 8, "swimwear": false, "curves": 6, "is_woman": true, "feminine": 10}
+09-17 05:56:01 LIKE Erika 22 (body athletic q8.0)  today 28L/27N
+09-17 05:56:06 Skye 22 -> {"body": "curvy", "body_confidence": 0.9, "photo_quality": 6, "swimwear": false, "curves": 8, "is_woman": true, "feminine": 10}
+09-17 05:56:09 LIKE Skye 22 (curves 8)  today 29L/27N
+09-17 05:56:13 Genesis 22 -> {"body": "average", "body_confidence": 0.7, "photo_quality": 4, "swimwear": false, "curves": 5, "is_woman": true, "feminine": 10}
+09-17 05:56:17 NOPE Genesis 22 (grainy/quality 4.0)  today 29L/28N
+09-17 05:56:23 Heaven 19 -> {"body": "average", "body_confidence": 0.5, "photo_quality": 6, "swimwear": false, "curves": 5, "is_woman": true, "feminine": 9}
+09-17 05:56:25 NOPE Heaven 19 (ratio)  today 29L/29N
+09-17 05:56:33 Yaren 22 -> {"body": "average", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 6, "is_woman": true, "feminine": 9}
+09-17 05:56:36 NOPE Yaren 22 (ratio)  today 29L/30N
+09-17 05:56:42 Alley 22 -> {"body": "slim", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 3, "is_woman": true, "feminine": 10}
+09-17 05:56:44 LIKE Alley 22 (body slim q8.0)  today 30L/30N
+09-17 05:56:50 Y 21 -> {"body": "slim", "body_confidence": 0.8, "photo_quality": 8, "swimwear": false, "curves": 4, "is_woman": true, "feminine": 10}
+09-17 05:56:53 LIKE Y 21 (body slim q8.0)  today 31L/30N
+09-17 05:57:02 Dana Arango 21 -> {"body": "average", "body_confidence": 0.9, "photo_quality": 6, "swimwear": true, "curves": 7, "is_woman": true, "feminine": 10}
+09-17 05:57:05 LIKE Dana Arango 21 (swimwear)  today 32L/30N
+09-17 05:57:08 screen=limit shot=/var/folders/s9/pdxds2ds7g71f6y0scz74sym0000gn/T/mobai/screenshots/observe_1789639028671.jpg text=['You’re all out of likes', 'Get more likes now']
+09-17 05:57:08 out of likes; checking again every 30 min

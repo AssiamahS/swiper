@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.3';
+  var VERSION = '1.0.4';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -48,7 +48,10 @@
       curvesAutoLike: 8,      // curves score >= this -> like
       maxPhotos: 3,
       requireFullBody: false,
-      minFeminine: 6
+      minFeminine: 6,
+      likeBodies: '',           // e.g. 'slim, athletic' -> like when body matches and quality >= likeMinQuality
+      likeMinQuality: 7,
+      onFail: 'ratio'           // ratio | nope when the vision call fails
     },
     geo: {
       enabled: false, lat: 40.758, lng: -73.9855, accuracy: 25,
@@ -184,7 +187,7 @@
       var sp = h1.querySelectorAll('span');
       if (sp.length >= 1) p.name = textOf(sp[0]);
       for (var i = 0; i < sp.length; i++) { var n = parseInt(textOf(sp[i]), 10); if (n >= 18 && n < 100) p.age = n; }
-      if (!p.name) p.name = textOf(h1).replace(/\d+$/, '').trim();
+      if (!p.name || !p.age) { var hm = textOf(h1).match(/^(.*?)\s*(\d{2})\s*$/); if (hm) { p.name = p.name || hm[1].trim(); p.age = p.age || parseInt(hm[2], 10); } else if (!p.name) p.name = textOf(h1).trim(); }
     }
     var txt = textOf(card);
     var d = txt.match(/(\d+)\s*(miles?|mi|km|kilomet\w*)\s*away/i);
@@ -288,6 +291,17 @@
       return { model: model, text: c };
     });
   }
+  function firstJson(text) {
+    try { var w = JSON.parse(text); if (Array.isArray(w)) w = w[0]; if (w && typeof w === 'object') return w; } catch (e) {}
+    var i = text.indexOf('{'); if (i < 0) throw new Error('no json');
+    var depth = 0, inStr = false;
+    for (var j = i; j < text.length; j++) {
+      var ch = text[j];
+      if (inStr) { if (ch === '\\') j++; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true; else if (ch === '{') depth++; else if (ch === '}') { depth--; if (!depth) return JSON.parse(text.slice(i, j + 1)); }
+    }
+    throw new Error('unbalanced json');
+  }
   function judge(profile) {
     var urls = profile.photos.slice(0, cfg.vision.maxPhotos);
     if (!urls.length) return Promise.reject(new Error('no photos'));
@@ -308,8 +322,7 @@
       order.forEach(function (o) { if (o[1]) chain = chain.catch(function (e) { if (e && e.message !== 'no vision key') log('vision ' + e.message + ', trying next provider', 'warn'); return o[0](); }); });
       return chain;
     }).then(function (r) {
-      var m = r.text.match(/\{[\s\S]*\}/); if (!m) throw new Error('no json from ' + r.model);
-      var v = JSON.parse(m[0]); v._model = r.model; return v;
+      var v = firstJson(r.text); v._model = r.model; return v;
     });
   }
   function visionReady() { return !!(cfg.vision.geminiKey || cfg.vision.key); }
@@ -323,6 +336,8 @@
     if (reject.indexOf(String(v.body).toLowerCase()) >= 0 && (isNaN(conf) || conf >= V.minBodyConf)) return { d: 'nope', why: 'body ' + v.body + ' (' + conf + ')' };
     if (V.swimwearAutoLike && v.swimwear === true) return { d: 'like', why: 'swimwear' };
     if (Number(v.curves) >= V.curvesAutoLike) return { d: 'like', why: 'curves ' + v.curves };
+    var likeB = (V.likeBodies || '').split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
+    if (likeB.indexOf(String(v.body).toLowerCase()) >= 0 && (isNaN(conf) || conf >= V.minBodyConf) && (isNaN(q) || q >= (V.likeMinQuality || 7))) return { d: 'like', why: 'body ' + v.body + ' q' + q };
     var unsure = (V.requireFullBody && v.full_body_visible === false) || (!isNaN(conf) && conf < V.minBodyConf);
     if (unsure && V.unsure !== 'ratio') return { d: V.unsure, why: 'unsure -> ' + V.unsure };
     return null; // let ratio decide
@@ -483,7 +498,7 @@
           stats.judged++; var r = applyVerdict(v);
           log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, woman: v.is_woman, fem: v.feminine }) + ' [' + v._model + ']');
           return r;
-        }).catch(function (e) { log('vision failed (' + e.message + '), using ratio', 'warn'); return null; });
+        }).catch(function (e) { log('vision failed (' + e.message + '), ' + (cfg.vision.onFail === 'nope' ? 'nope' : 'using ratio'), 'warn'); return cfg.vision.onFail === 'nope' ? { d: 'nope', why: 'vision failed' } : null; });
       }
       return dec;
     }).then(function (d) {
@@ -609,6 +624,9 @@
       field('Require full-body photo', 'vision.requireFullBody', 'check'),
       field('Min photo quality (0-10)', 'vision.minQuality', 'range', { min: 0, max: 10 }),
       field('Min feminine score (0-10)', 'vision.minFeminine', 'range', { min: 0, max: 10 }),
+      field('Like body types (comma)', 'vision.likeBodies', 'text', { placeholder: 'slim, athletic' }),
+      field('...when photo quality >=', 'vision.likeMinQuality', 'range', { min: 0, max: 10 }),
+      field('If vision fails', 'vision.onFail', 'select', { options: ['ratio', 'nope'] }),
       field('Swimwear = auto like', 'vision.swimwearAutoLike', 'check'),
       field('Curves score auto like (0-10)', 'vision.curvesAutoLike', 'range', { min: 0, max: 11 }),
       field('Photos sent per card', 'vision.maxPhotos', 'number'),
