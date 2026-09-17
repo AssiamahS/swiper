@@ -239,3 +239,4 @@ Traceback (most recent call last):
   File "/Users/djsly/swiper/bumble/bumble_swiper.py", line 136, in ensure_bridge
     raise RuntimeError("phone not connected to MobAI (USB unplugged?)")
 RuntimeError: phone not connected to MobAI (USB unplugged?)
+09-17 11:09:49 still out of likes; sleeping until Fri 05:59

@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.1.0';
+  var VERSION = '1.1.1';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -38,7 +38,7 @@
       key: '',
       provider: 'openrouter', // openrouter | gemini
       geminiKey: '',
-      geminiModel: 'gemini-3.1-flash-lite',
+      geminiModel: 'gemini-3.5-flash-lite, gemini-3.1-flash-lite',   // tried in order; each has its own free daily quota
       models: 'nex-agi/nex-n2.5-pro:free, inclusionai/ling-3.0-flash-vl:free, dots-studio/dots-3-note-preview:free, google/gemma-4-31b-it:free',
       rejectBodies: 'plus',   // comma list: slim, athletic, average, curvy, plus
       minBodyConf: 0.5,
@@ -56,7 +56,7 @@
       nopeDyedHair: true,
       likeBodies: '',           // e.g. 'slim, athletic' -> like when body matches and quality >= likeMinQuality
       likeMinQuality: 7,
-      onFail: 'ratio'           // ratio | nope when the vision call fails
+      onFail: 'wait'            // wait | nope | ratio when the vision call fails
     },
     geo: {
       enabled: false, lat: 40.758, lng: -73.9855, accuracy: 25,
@@ -88,7 +88,8 @@
   function saveCfg() { saveJSON(LS_CFG, cfg); }
   // migrate stale default model lists from older versions
   if (cfg.vision.models === 'google/gemma-4-31b-it:free, nex-agi/nex-n2.5-pro:free, google/gemma-4-26b-a4b-it:free') { cfg.vision.models = DEFAULTS.vision.models; saveCfg(); }
-  if (cfg.vision.geminiModel === 'gemini-2.5-flash-lite') { cfg.vision.geminiModel = DEFAULTS.vision.geminiModel; saveCfg(); } // retired for new keys
+  if (cfg.vision.geminiModel === 'gemini-2.5-flash-lite' || cfg.vision.geminiModel === 'gemini-3.1-flash-lite') { cfg.vision.geminiModel = DEFAULTS.vision.geminiModel; saveCfg(); }
+  if (cfg.vision.onFail === 'nope' || cfg.vision.onFail === 'ratio') { cfg.vision.onFail = 'wait'; saveCfg(); } // never swipe blind when the brain is down
 
   function today() { return new Date().toISOString().slice(0, 10); }
   var stats = loadJSON(LS_STATS, {});
@@ -299,18 +300,24 @@
       var m = /^data:([^;]+);base64,(.*)$/.exec(u);
       if (m) parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
     });
-    var model = cfg.vision.geminiModel || 'gemini-3.1-flash-lite';
-    var ctl = new AbortController(); var to = setTimeout(function () { ctl.abort(); }, opts.timeout || 30000);
-    return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(cfg.vision.geminiKey), {
-      method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: { temperature: 0, maxOutputTokens: opts.maxTokens || 800, responseMimeType: 'application/json' } })
-    }).then(function (r) { return r.json(); }).then(function (d) {
-      clearTimeout(to);
-      if (d.error) throw new Error('gemini: ' + (d.error.message || '').slice(0, 120));
-      var c = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts && d.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join('');
-      if (!c) throw new Error('gemini: empty');
-      return { model: model, text: c };
-    });
+    var models = (cfg.vision.geminiModel || 'gemini-3.5-flash-lite').split(',').map(function (m) { return m.trim(); }).filter(Boolean);
+    var i = 0;
+    function tryNext(lastErr) {
+      if (i >= models.length) return Promise.reject(lastErr || new Error('gemini: no models'));
+      var model = models[i++];
+      var ctl = new AbortController(); var to = setTimeout(function () { ctl.abort(); }, opts.timeout || 30000);
+      return fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(cfg.vision.geminiKey), {
+        method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: { temperature: 0, maxOutputTokens: opts.maxTokens || 800, responseMimeType: 'application/json' } })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        clearTimeout(to);
+        if (d.error) throw new Error(model + ': ' + (d.error.message || '').slice(0, 90));
+        var c = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts && d.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join('');
+        if (!c) throw new Error(model + ': empty');
+        return { model: model, text: c };
+      }).catch(function (e) { clearTimeout(to); log('gemini ' + e.message, 'warn'); return tryNext(e); });
+    }
+    return tryNext();
   }
   function firstJson(text) {
     try { var w = JSON.parse(text); if (Array.isArray(w)) w = w[0]; if (w && typeof w === 'object') return w; } catch (e) {}
@@ -526,10 +533,15 @@
           stats.judged++; var r = applyVerdict(v);
           log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, bust: v.bust, sexy: v.sexy_vibe, dyed: v.dyed_hair, fem: v.feminine }) + ' [' + v._model + ']');
           return r;
-        }).catch(function (e) { log('vision failed (' + e.message + '), ' + (cfg.vision.onFail === 'nope' ? 'nope' : 'using ratio'), 'warn'); return cfg.vision.onFail === 'nope' ? { d: 'nope', why: 'vision failed' } : null; });
+        }).catch(function (e) {
+          if (cfg.vision.onFail === 'nope') { log('vision failed (' + e.message + '), nope', 'warn'); return { d: 'nope', why: 'vision failed' }; }
+          if (cfg.vision.onFail === 'ratio') { log('vision failed (' + e.message + '), using ratio', 'warn'); return null; }
+          log('vision failed (' + e.message + '), holding 60s (no blind swipes)', 'warn'); return { d: 'wait', why: e.message };
+        });
       }
       return dec;
     }).then(function (d) {
+      if (d && d.d === 'wait') { lastCardKey = ''; return sleep(60000).then(function () { return null; }); }
       if (!d) d = { d: Math.random() < cfg.likeRatio ? 'like' : 'nope', why: 'ratio' };
       if (Math.random() < cfg.openProfileChance) {
         var ob = card.querySelector('button[aria-label*="open profile" i], button[aria-label*="show more" i]');
@@ -537,6 +549,7 @@
       }
       return sleep(swipeDelay()).then(function () { return d; });
     }).then(function (d) {
+      if (!d) return;
       var how = swipe(d.d); lastDecision = d.d; lastCardAt = Date.now();
       if (d.d === 'like') stats.likes++; else stats.nopes++;
       sessionSwipes++; sinceBreak++; saveStats(); renderStats();
@@ -645,7 +658,7 @@
       field('OpenRouter key', 'vision.key', 'password', { placeholder: 'sk-or-v1-...' }),
       field('Models (comma, first wins)', 'vision.models', 'textarea'),
       field('Gemini key (aistudio.google.com/apikey)', 'vision.geminiKey', 'password', { placeholder: 'AIza...' }),
-      field('Gemini model', 'vision.geminiModel', 'text'),
+      field('Gemini models (comma, first wins)', 'vision.geminiModel', 'text'),
       field('Reject body types', 'vision.rejectBodies', 'text', { placeholder: 'plus  or  plus, curvy' }),
       field('Min body confidence', 'vision.minBodyConf', 'range', { min: 0, max: 1, step: 0.05 }),
       field('When unsure', 'vision.unsure', 'select', { options: ['ratio', 'like', 'nope'] }),
@@ -657,7 +670,7 @@
       field('Nope on dyed hair', 'vision.nopeDyedHair', 'check'),
       field('Like body types (comma)', 'vision.likeBodies', 'text', { placeholder: 'slim, athletic' }),
       field('...when photo quality >=', 'vision.likeMinQuality', 'range', { min: 0, max: 10 }),
-      field('If vision fails', 'vision.onFail', 'select', { options: ['ratio', 'nope'] }),
+      field('If vision fails', 'vision.onFail', 'select', { options: ['wait', 'nope', 'ratio'] }),
       field('Swimwear = auto like', 'vision.swimwearAutoLike', 'check'),
       field('Curves score auto like (0-10)', 'vision.curvesAutoLike', 'range', { min: 0, max: 11 }),
       field('Bust score auto like (0-10)', 'vision.bustAutoLike', 'range', { min: 0, max: 11 }),
