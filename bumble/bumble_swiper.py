@@ -60,9 +60,9 @@ PROMPT = (
     "You are rating dating-app profile screenshots for a personal swipe filter. Look at ALL images "
     "(they are scrolled views of one profile; ignore app chrome, buttons and text boxes) and return ONLY a JSON object, no prose:\n"
     '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,'
-    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"notes":"short"}\n'
+    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"facial_piercings":true|false,"alt_style":true|false,"notes":"short"}\n'
     "bust: how large/prominent her chest is (0-10). sexy_vibe: how provocative, flirty or slutty the vibe is (tongue out, suggestive poses, revealing outfits, lingerie; 0 = wholesome, 10 = very provocative). "
-    "face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true ONLY for obviously unnatural colors (pink, blue, green, purple, bright red); blonde, highlights, balayage, auburn and ombre are natural = false. in_shape: true if she looks fit or slim-to-average with a toned or curvy figure, false if overweight. "
+    "face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true for unnatural or split-dyed hair (pink, blue, green, purple, bright yellow, bright red, two-tone split dye); natural blonde, highlights, balayage and auburn = false. facial_piercings: true for nose rings, septum, lip, eyebrow or face piercings (ear piercings = false). alt_style: true for emo/goth/punk/alt styling, heavy dark makeup, chains, harnesses. in_shape: true if she looks fit or slim-to-average with a toned or curvy figure, false if overweight. "
     "Judge across ALL images, not just the first. full_body_visible: true only if at least one image shows her from head to at least mid-thigh. swimwear: true if ANY image shows a bikini, swimsuit or lingerie. "
     "body: overall body size of the profile owner using the clearest full-body photo (plus = visibly heavy/plus-size). "
     "curves: how pronounced hips/glutes/hourglass figure are. photo_quality: 10 = sharp, well lit, high-res; "
@@ -255,48 +255,46 @@ def gemini_judge(cfg, shots, profile):
 
 def apply_verdict(cfg, v):
     V = cfg["vision"]
-    q = v.get("photo_quality"); conf = v.get("body_confidence")
-    q = float(q) if isinstance(q, (int, float)) else None
-    conf = float(conf) if isinstance(conf, (int, float)) else None
-    fem = v.get("feminine")
-    fem = float(fem) if isinstance(fem, (int, float)) else None
+
+    def num(x):
+        try:
+            return None if x in (None, "") else float(x)
+        except (TypeError, ValueError):
+            return None
+    q, conf, fem, face = num(v.get("photo_quality")), num(v.get("body_confidence")), num(v.get("feminine")), num(v.get("face"))
+    body = str(v.get("body", "")).lower()
     if v.get("is_woman") is False or (fem is not None and fem < V.get("min_feminine", 6)):
-        return ("nope", f"not a woman (feminine {fem})")
-    if v.get("grainy") is True or (q is not None and q < V["min_quality"]):
-        return ("nope", f"grainy/quality {q}")
-    if str(v.get("body", "")).lower() in [b.lower() for b in V["reject_bodies"]] and (conf is None or conf >= V["min_body_conf"]):
-        return ("nope", f"body {v.get('body')} ({conf})")
-    if V["swimwear_auto_like"] and v.get("swimwear") is True and v.get("in_shape") is not False \
-            and str(v.get("body", "")).lower() != "plus" and not (V.get("nope_dyed_hair") and v.get("dyed_hair") is True):
-        return ("like", f"bikini, {v.get('body')}")
-    face = v.get("face"); face = float(face) if isinstance(face, (int, float)) else None
+        return ("nope", "not a woman")
+    if body in [b.lower() for b in V["reject_bodies"]] and (conf is None or conf >= V["min_body_conf"]):
+        return ("nope", f"body {body}")
+    if v.get("in_shape") is False:
+        return ("nope", "out of shape")
+    if V.get("nope_dyed_hair", True) and v.get("dyed_hair") is True:
+        return ("nope", "dyed hair")
+    if V.get("nope_piercings", True) and v.get("facial_piercings") is True:
+        return ("nope", "face piercings")
+    if V.get("nope_alt", True) and v.get("alt_style") is True:
+        return ("nope", "alt style")
+    if V["swimwear_auto_like"] and v.get("swimwear") is True:
+        return ("like", f"bikini, {body}")
     if face is not None and face < V.get("min_face", 0):
         return ("nope", f"face {face}")
-    if V.get("nope_dyed_hair") and v.get("dyed_hair") is True:
-        return ("nope", "dyed hair")
+    if v.get("grainy") is True or (q is not None and q < V["min_quality"]):
+        return ("nope", f"grainy/quality {q}")
     if V.get("require_full_body") and v.get("full_body_visible") is not True:
         return ("nope", "no full-body photo")
-    if face is not None and V.get("like_face") and face >= V["like_face"]:
-        return ("like", f"face {face}")
-    for key, lbl in (("sexy_vibe", "sexy_auto_like"), ("bust", "bust_auto_like")):
-        try:
-            if float(v.get(key, 0)) >= V.get(lbl, 11):
-                return ("like", f"{key} {v.get(key)}")
-        except (TypeError, ValueError):
-            pass
-    if V["swimwear_auto_like"] and v.get("swimwear") is True:
-        return ("like", "swimwear")
-    try:
-        if float(v.get("curves", 0)) >= V["curves_auto_like"]:
-            return ("like", f"curves {v.get('curves')}")
-    except (TypeError, ValueError):
-        pass
-    if str(v.get("body", "")).lower() in [b.lower() for b in V.get("like_bodies", [])] and (conf is None or conf >= V["min_body_conf"]) and (q is None or q >= V.get("like_min_quality", 7)):
-        return ("like", f"body {v.get('body')} q{q}")
-    unsure = conf is not None and conf < V["min_body_conf"]
-    if unsure and V["unsure"] != "ratio":
-        return (V["unsure"], f"unsure -> {V['unsure']}")
-    return None
+    feats = []
+    if face is not None and face >= V.get("like_face", 11):
+        feats.append(f"face {face}")
+    for key, lim in (("curves", "curves_auto_like"), ("bust", "bust_auto_like"), ("sexy_vibe", "sexy_auto_like")):
+        n = num(v.get(key))
+        if n is not None and n >= V.get(lim, 11):
+            feats.append(f"{key} {n}")
+    if body in [b.lower() for b in V.get("like_bodies", [])] and (q is None or q >= V.get("like_min_quality", 7)):
+        feats.append(body)
+    if feats:
+        return ("like", ", ".join(feats))
+    return ("nope", f"nothing stands out (face {face})")
 
 
 def text_decision(cfg, p):
