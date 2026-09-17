@@ -1,2 +1,5 @@
 __pycache__/
 *.unsigned.shortcut
+bumble/state.json
+bumble/log.txt
+bumble/config.json
