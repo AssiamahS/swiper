@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.7';
+  var VERSION = '1.0.8';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -150,12 +150,16 @@
     return Array.prototype.slice.call((root || document).querySelectorAll('div[role="img"][aria-label*="Profile Photo" i], div[role="img"][aria-label*="photo" i], img[alt*="photo" i]'));
   }
   function findCard() {
-    var els = photoEls(document).filter(visible);
+    // Tinder keeps ~3 cards stacked in .recsCardboard__cards; only the top one is aria-hidden="false"
+    var top = Array.prototype.slice.call(document.querySelectorAll('.recsCardboard__cards > [aria-hidden="false"], [class*="recsCardboard__cards"] > [aria-hidden="false"]'))
+      .filter(function (c) { return c.querySelector('[itemprop="name"], h1') && photoEls(c).length; })[0];
+    if (top) return top;
+    var els = photoEls(document).filter(function (e) { return visible(e) && !e.closest('[aria-hidden="true"]'); });
     if (!els.length) return null;
     var el = els[0], node = el;
     for (var i = 0; i < 12 && node && node !== document.body; i++) {
       node = node.parentElement;
-      if (node && node.querySelector('h1')) return node;
+      if (node && node.querySelector('[itemprop="name"], h1')) return node;
     }
     node = el; for (i = 0; i < 6 && node.parentElement && node.parentElement !== document.body; i++) node = node.parentElement;
     return node;
@@ -170,7 +174,7 @@
   }
   function nextPhoto(card) {
     var before = photoUrls(card).length;
-    var b = card.querySelector('button[aria-label*="next" i], button[aria-label*="Next Photo" i]');
+    var b = card.querySelector('button[aria-label="Next Photo"], button[aria-label*="next photo" i]');
     if (b) { b.click(); return; }
     key(' ', 'Space');
     // fallback: tap the right third of the visible photo
@@ -185,7 +189,10 @@
   }
   function parseCard(card) {
     var p = { name: '', age: 0, distance: null, bio: '', photos: [] };
-    var h1 = card.querySelector('h1');
+    var nm = card.querySelector('[itemprop="name"]'), ag = card.querySelector('[itemprop="age"]');
+    if (nm) p.name = textOf(nm);
+    if (ag) p.age = parseInt(textOf(ag), 10) || 0;
+    var h1 = p.name ? null : card.querySelector('h1');
     if (h1) {
       var sp = h1.querySelectorAll('span');
       if (sp.length >= 1) p.name = textOf(sp[0]);
