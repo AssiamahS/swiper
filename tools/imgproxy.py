@@ -14,6 +14,8 @@ ALLOWED = ("gotinder.com", "tinder.com")
 
 
 class H(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, *a):
         pass
 
@@ -21,9 +23,12 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
+        # Chrome Private Network Access: a public https page reaching 127.0.0.1 needs this on the preflight
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Access-Control-Max-Age", "86400")
 
     def do_OPTIONS(self):
-        self.send_response(204); self._cors(); self.end_headers()
+        self.send_response(204); self._cors(); self.send_header("Content-Length", "0"); self.end_headers()
 
     def do_GET(self):
         p = urllib.parse.urlparse(self.path)
@@ -31,13 +36,14 @@ class H(http.server.BaseHTTPRequestHandler):
         u = (q.get("u") or [""])[0]
         host = urllib.parse.urlparse(u).hostname or ""
         if p.path != "/img" or not any(host.endswith(a) for a in ALLOWED):
-            self.send_response(403); self._cors(); self.end_headers(); return
+            self.send_response(403); self._cors(); self.send_header("Content-Length", "0"); self.end_headers(); return
         try:
             req = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://tinder.com/"})
             with urllib.request.urlopen(req, timeout=20) as r:
                 data = r.read(); ct = r.headers.get("Content-Type", "image/jpeg")
         except Exception as e:
-            self.send_response(502); self._cors(); self.end_headers(); self.wfile.write(str(e).encode()[:200]); return
+            msg = str(e).encode()[:200]
+            self.send_response(502); self._cors(); self.send_header("Content-Length", str(len(msg))); self.end_headers(); self.wfile.write(msg); return
         self.send_response(200); self._cors()
         self.send_header("Content-Type", ct); self.send_header("Content-Length", str(len(data))); self.send_header("Cache-Control", "no-store")
         self.end_headers(); self.wfile.write(data)

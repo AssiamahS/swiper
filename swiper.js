@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.1.3';
+  var VERSION = '1.1.4';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -36,7 +36,7 @@
     vision: {
       enabled: true,
       key: '',
-      provider: 'openrouter', // openrouter | gemini
+      provider: 'openrouter', // openrouter | gemini | bridge (desktop: tools/dia_bridge.py fetches photos + judges on the Mac)
       geminiKey: '',
       geminiModel: 'gemini-3.5-flash-lite, gemini-3.1-flash-lite',   // tried in order; each has its own free daily quota
       models: 'nex-agi/nex-n2.5-pro:free, inclusionai/ling-3.0-flash-vl:free, dots-studio/dots-3-note-preview:free, google/gemma-4-31b-it:free',
@@ -332,9 +332,26 @@
     }
     throw new Error('unbalanced json');
   }
+  // bridge provider: hand the request to a helper on the Mac (tools/dia_bridge.py) that polls this queue over CDP
+  var bridge = window.__swiperBridge = window.__swiperBridge || { q: [], waiting: {}, take: function () { var t = this.q; this.q = []; return t; },
+    deliver: function (id, v) { var w = this.waiting[id]; if (w) { delete this.waiting[id]; v && v.error ? w.rej(new Error(v.error)) : w.res(v); } } };
+  function bridgeJudge(text, urls) {
+    return new Promise(function (res, rej) {
+      var id = 'j' + Date.now() + Math.random().toString(36).slice(2, 6);
+      bridge.waiting[id] = { res: res, rej: rej };
+      bridge.q.push({ id: id, text: text, urls: urls });
+      setTimeout(function () { if (bridge.waiting[id]) { delete bridge.waiting[id]; rej(new Error('bridge helper not answering (is tools/dia_bridge.py running?)')); } }, 90000);
+    });
+  }
   function judge(profile) {
     var urls = profile.photos.slice(0, cfg.vision.maxPhotos);
     if (!urls.length) return Promise.reject(new Error('no photos'));
+    if (cfg.vision.provider === 'bridge') {
+      return bridgeJudge(PROMPT + (profile.bio ? '\nProfile text: ' + profile.bio.slice(0, 300) : ''), urls).then(function (v) {
+        if (!Number(v.face) && !Number(v.feminine) && !Number(v.photo_quality) && !Number(v.curves)) throw new Error('empty verdict from ' + v._model);
+        return v;
+      });
+    }
     return Promise.all(urls.map(function (u) {
       return fetchImageAsDataUrl(u, 800).catch(function () { return u; }); // fall back to raw URL
     })).then(function (imgs) {
@@ -357,7 +374,7 @@
       return v;
     });
   }
-  function visionReady() { return !!(cfg.vision.geminiKey || cfg.vision.key); }
+  function visionReady() { return cfg.vision.provider === 'bridge' || !!(cfg.vision.geminiKey || cfg.vision.key); }
   function applyVerdict(v) {
     var V = cfg.vision;
     var reject = V.rejectBodies.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
@@ -658,7 +675,7 @@
     // Vision
     bodies.Vision.append(
       field('Vision judge on', 'vision.enabled', 'check'),
-      field('Provider', 'vision.provider', 'select', { options: ['openrouter', 'gemini'] }),
+      field('Provider', 'vision.provider', 'select', { options: ['openrouter', 'gemini', 'bridge'] }),
       field('OpenRouter key', 'vision.key', 'password', { placeholder: 'sk-or-v1-...' }),
       field('Models (comma, first wins)', 'vision.models', 'textarea'),
       field('Gemini key (aistudio.google.com/apikey)', 'vision.geminiKey', 'password', { placeholder: 'AIza...' }),
