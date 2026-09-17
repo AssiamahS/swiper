@@ -47,6 +47,9 @@ DEFAULTS = {
         "like_bodies": [],          # e.g. ["slim","athletic"]: like when body is in this list and quality >= like_min_quality
         "like_min_quality": 7,
         "min_feminine": 6,
+        "min_face": 6,
+        "like_face": 8,
+        "nope_dyed_hair": True,
     },
 }
 SPEED = {0: (0.3, 0.8), 1: (1, 3), 2: (4, 9), 3: (6, 15), 4: (10, 25), 5: (20, 45)}
@@ -55,7 +58,8 @@ PROMPT = (
     "You are rating dating-app profile screenshots for a personal swipe filter. Look at ALL images "
     "(they are scrolled views of one profile; ignore app chrome, buttons and text boxes) and return ONLY a JSON object, no prose:\n"
     '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,'
-    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"notes":"short"}\n'
+    '"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"notes":"short"}\n'
+    "face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true if hair is an unnatural color (pink, blue, green, purple, etc). "
     "Judge across ALL images, not just the first. full_body_visible: true only if at least one image shows her from head to at least mid-thigh. swimwear: true if ANY image shows a bikini, swimsuit or lingerie. "
     "body: overall body size of the profile owner using the clearest full-body photo (plus = visibly heavy/plus-size). "
     "curves: how pronounced hips/glutes/hourglass figure are. photo_quality: 10 = sharp, well lit, high-res; "
@@ -259,8 +263,15 @@ def apply_verdict(cfg, v):
         return ("nope", f"grainy/quality {q}")
     if str(v.get("body", "")).lower() in [b.lower() for b in V["reject_bodies"]] and (conf is None or conf >= V["min_body_conf"]):
         return ("nope", f"body {v.get('body')} ({conf})")
+    face = v.get("face"); face = float(face) if isinstance(face, (int, float)) else None
+    if face is not None and face < V.get("min_face", 0):
+        return ("nope", f"face {face}")
+    if V.get("nope_dyed_hair") and v.get("dyed_hair") is True:
+        return ("nope", "dyed hair")
     if V.get("require_full_body") and v.get("full_body_visible") is not True:
         return ("nope", "no full-body photo")
+    if face is not None and V.get("like_face") and face >= V["like_face"]:
+        return ("like", f"face {face}")
     if V["swimwear_auto_like"] and v.get("swimwear") is True:
         return ("like", "swimwear")
     try:
@@ -426,7 +437,7 @@ def main():
             try:
                 v = gemini_judge(cfg, shots, p)
                 state["judged"] += 1
-                log(f"{p['name']} {p['age']} -> " + json.dumps({k: v.get(k) for k in ("body", "body_confidence", "photo_quality", "swimwear", "curves", "is_woman", "feminine")}))
+                log(f"{p['name']} {p['age']} -> " + json.dumps({k: v.get(k) for k in ("body", "body_confidence", "photo_quality", "swimwear", "curves", "face", "dyed_hair", "feminine")}))
                 dec = apply_verdict(cfg, v)
             except Exception as e:
                 log(f"vision failed ({e}), using ratio")

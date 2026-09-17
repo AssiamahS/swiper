@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.0.6';
+  var VERSION = '1.0.7';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -30,7 +30,7 @@
       maxDistance: 0,         // 0 = off, in the unit Tinder shows
       minAge: 0, maxAge: 0,
       mustHaveBio: false,
-      nopeWords: '',          // comma separated, matched in bio/name
+      nopeWords: 'liberal, leftist, feminist, socialist, antifa, blm, communist, progressive',
       likeWords: ''
     },
     vision: {
@@ -49,6 +49,9 @@
       maxPhotos: 6,
       requireFullBody: true,
       minFeminine: 6,
+      minFace: 6,               // nope below this
+      likeFace: 8,              // like at/above this (with a full-body photo)
+      nopeDyedHair: true,
       likeBodies: '',           // e.g. 'slim, athletic' -> like when body matches and quality >= likeMinQuality
       likeMinQuality: 7,
       onFail: 'ratio'           // ratio | nope when the vision call fails
@@ -222,7 +225,8 @@
 
   // ---------------------------------------------------------------- vision judge
   var PROMPT = 'You are rating dating-app profile photos for a personal swipe filter. Look at ALL photos and return ONLY a JSON object, no prose, no markdown:\n' +
-    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"notes":"short"}\n' +
+    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"notes":"short"}\n' +
+    'face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true if hair is an unnatural color (pink, blue, green, purple, etc). ' +
     'Judge across ALL photos, not just the first. full_body_visible: true only if at least one photo shows her from head to at least mid-thigh. swimwear: true if ANY photo shows a bikini, swimsuit or lingerie. ' +
     'body: overall body size of the main person using the clearest full-body photo (plus = visibly heavy/plus-size). curves: how pronounced hips/glutes/hourglass figure are. ' +
     'photo_quality: 10 = sharp, well lit, high-res; 0 = blurry, grainy, dark, pixelated, heavy filters. grainy = true if most photos are low quality. ' +
@@ -335,7 +339,11 @@
     if (v.is_woman === false || (!isNaN(fem) && fem < (V.minFeminine || 6))) return { d: 'nope', why: 'not a woman (feminine ' + v.feminine + ')' };
     if (v.grainy === true || (!isNaN(q) && q < V.minQuality)) return { d: 'nope', why: 'grainy/quality ' + q };
     if (reject.indexOf(String(v.body).toLowerCase()) >= 0 && (isNaN(conf) || conf >= V.minBodyConf)) return { d: 'nope', why: 'body ' + v.body + ' (' + conf + ')' };
+    var face = Number(v.face);
+    if (!isNaN(face) && face < (V.minFace || 0)) return { d: 'nope', why: 'face ' + face };
+    if (V.nopeDyedHair && v.dyed_hair === true) return { d: 'nope', why: 'dyed hair' };
     if (V.requireFullBody && v.full_body_visible !== true) return { d: 'nope', why: 'no full-body photo' };
+    if (!isNaN(face) && V.likeFace && face >= V.likeFace) return { d: 'like', why: 'face ' + face };
     if (V.swimwearAutoLike && v.swimwear === true) return { d: 'like', why: 'swimwear' };
     if (Number(v.curves) >= V.curvesAutoLike) return { d: 'like', why: 'curves ' + v.curves };
     var likeB = (V.likeBodies || '').split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
@@ -498,7 +506,7 @@
         setStatus('judging ' + (p.name || 'card') + '...');
         return judge(p).then(function (v) {
           stats.judged++; var r = applyVerdict(v);
-          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, woman: v.is_woman, fem: v.feminine }) + ' [' + v._model + ']');
+          log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, dyed: v.dyed_hair, fem: v.feminine }) + ' [' + v._model + ']');
           return r;
         }).catch(function (e) { log('vision failed (' + e.message + '), ' + (cfg.vision.onFail === 'nope' ? 'nope' : 'using ratio'), 'warn'); return cfg.vision.onFail === 'nope' ? { d: 'nope', why: 'vision failed' } : null; });
       }
@@ -626,6 +634,9 @@
       field('Like only with a full-body photo', 'vision.requireFullBody', 'check'),
       field('Min photo quality (0-10)', 'vision.minQuality', 'range', { min: 0, max: 10 }),
       field('Min feminine score (0-10)', 'vision.minFeminine', 'range', { min: 0, max: 10 }),
+      field('Nope if face below (0-10)', 'vision.minFace', 'range', { min: 0, max: 10 }),
+      field('Like if face at least (0-10)', 'vision.likeFace', 'range', { min: 0, max: 11 }),
+      field('Nope on dyed hair', 'vision.nopeDyedHair', 'check'),
       field('Like body types (comma)', 'vision.likeBodies', 'text', { placeholder: 'slim, athletic' }),
       field('...when photo quality >=', 'vision.likeMinQuality', 'range', { min: 0, max: 10 }),
       field('If vision fails', 'vision.onFail', 'select', { options: ['ratio', 'nope'] }),
