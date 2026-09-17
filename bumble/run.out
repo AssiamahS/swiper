@@ -229,3 +229,13 @@ Traceback (most recent call last):
   File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py", line 611, in http_error_default
     raise HTTPError(req.full_url, code, msg, hdrs, fp)
 urllib.error.HTTPError: HTTP Error 404: Not Found
+Traceback (most recent call last):
+  File "/Users/djsly/swiper/bumble/bumble_swiper.py", line 478, in <module>
+    main()
+    ~~~~^^
+  File "/Users/djsly/swiper/bumble/bumble_swiper.py", line 345, in main
+    phone.ensure_bridge()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/djsly/swiper/bumble/bumble_swiper.py", line 136, in ensure_bridge
+    raise RuntimeError("phone not connected to MobAI (USB unplugged?)")
+RuntimeError: phone not connected to MobAI (USB unplugged?)
