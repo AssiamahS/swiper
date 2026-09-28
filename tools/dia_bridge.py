@@ -159,6 +159,8 @@ def main():
                 tab = Tab(); log("attached to the Tinder tab")
             if time.time() - last_alive > 30:
                 ensure_running(tab); last_alive = time.time()
+                # one status line per check so nobody needs a second CDP client (a second client kicks this one off the page)
+                log("status " + str(tab.js("localStorage.getItem('swiper.stats') + ' | ' + ((document.querySelector('#swiper-panel .sw-status')||{}).innerText||'')"))[:200])
             reqs = json.loads(tab.js("JSON.stringify(window.__swiperBridge ? window.__swiperBridge.take() : [])") or "[]")
             for r in reqs:
                 t = time.time(); v = judge(r)
