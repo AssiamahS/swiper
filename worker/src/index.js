@@ -1,0 +1,142 @@
+// swiper-judge: the swiper vision brain, so the Tinder lane works from any device with no Mac involved.
+// POST /judge { text, urls: [photo urls] }  header X-Key  ->  verdict JSON ({ error, kind } when it cannot judge)
+// Photos are fetched here (the CDN has no CORS for the page), Gemini judges (own key), Workers AI llama-vision is the fallback.
+const GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
+const CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+const TINY = 12 * 1024;          // below this a "photo" is a preview thumbnail, never judge it
+const MODEL_TIMEOUT = 20000;     // ms per model call
+const BUDGET = 40000;            // ms total, the page waits 45s
+const UID_RE = /\/u\/([^/]+)\//;
+const pick = (out) => typeof out === "string" ? out : (out.response ?? out.choices?.[0]?.message?.content ?? JSON.stringify(out));
+
+function cors(request) {
+  const o = request.headers.get("Origin") || "";
+  const ok = /^https:\/\/([a-z0-9-]+\.)?tinder\.com$/.test(o) || /^https:\/\/([a-z0-9-]+\.)?bumble\.com$/.test(o);
+  return { "Access-Control-Allow-Origin": ok ? o : "https://tinder.com", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, X-Key", "Access-Control-Max-Age": "86400", "Vary": "Origin" };
+}
+const json = (obj, status, request) => Response.json(obj, { status: status || 200, headers: cors(request) });
+
+function firstJson(text) {
+  try { const w = JSON.parse(text); return Array.isArray(w) ? w[0] : w; } catch {}
+  const i = text.indexOf("{");
+  if (i < 0) throw new Error("no json");
+  let depth = 0;
+  for (let j = i; j < text.length; j++) {
+    if (text[j] === "{") depth++;
+    else if (text[j] === "}" && --depth === 0) return JSON.parse(text.slice(i, j + 1));
+  }
+  throw new Error("no json");
+}
+const num = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
+const emptyVerdict = (v) => !num(v.face) && !num(v.feminine) && !num(v.photo_quality) && !num(v.curves);
+
+function ownPhotos(urls) {
+  const groups = {};
+  for (const u of urls) { const k = (UID_RE.exec(u) || [])[1] || u; (groups[k] = groups[k] || []).push(u); }
+  const best = Object.values(groups).sort((a, b) => b.length - a.length)[0] || [];
+  return best.length > 1 && best.length < urls.length ? best : urls;
+}
+
+async function fetchPhoto(u) {
+  const m = /\/(\d+)x(\d+)_/.exec(u);
+  const candidates = m && +m[1] < 400 ? [u.replace(/\/(\d+)x(\d+)_/, "/640x800_"), u.replace(/\/(\d+)x(\d+)_/, "/"), u] : [u];
+  let best = null;
+  for (const c of candidates) {
+    try {
+      const r = await fetch(c, { headers: { "User-Agent": "Mozilla/5.0", "Referer": "https://tinder.com/" }, cf: { cacheTtl: 0 } });
+      if (!r.ok) continue;
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      const ct = (r.headers.get("Content-Type") || "image/jpeg").split(";")[0];
+      if (!best || bytes.length > best.bytes.length) best = { bytes, ct };
+      if (bytes.length >= TINY) break;
+    } catch {}
+  }
+  return best;
+}
+
+function b64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+async function gemini(env, text, imgs, deadline, reverse) {
+  let last = null;
+  const order = reverse ? [...GEMINI_MODELS].reverse() : GEMINI_MODELS;
+  for (const model of order) {
+    const left = deadline - Date.now();
+    if (left < 4000) break;
+    const parts = [{ text }, ...imgs.map((im) => ({ inline_data: { mime_type: im.ct, data: im.b64 } }))];
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), Math.min(MODEL_TIMEOUT, left));
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_KEY}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl.signal,
+        body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 800, responseMimeType: "application/json" } }),
+      });
+      const d = await r.json();
+      if (!r.ok) { last = `${model}: HTTP ${r.status} ${(d.error && d.error.message || "").slice(0, 60)}`; continue; }
+      const out = (d.candidates[0].content.parts || []).map((p) => p.text || "").join("");
+      const v = firstJson(out); v._model = model; return v;
+    } catch (e) { last = `${model}: ${String(e).slice(0, 60)}`; }
+    finally { clearTimeout(t); }
+  }
+  throw new Error(last || "gemini failed");
+}
+
+async function llamaVision(env, text, imgs, deadline) {
+  // single image per call on this model; judge up to 3 photos and merge (max scores, any-true flags, body from the fullest photo)
+  const outs = [];
+  for (const im of imgs.slice(0, 3)) {
+    if (deadline - Date.now() < 5000) break;
+    try {
+      const out = await env.AI.run(CF_MODEL, { messages: [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: `data:${im.ct};base64,${im.b64}` } }] }], max_tokens: 600, temperature: 0 });
+      outs.push(firstJson(pick(out)));
+    } catch (e) { if (!outs.length) throw e; break; }
+  }
+  if (!outs.length) throw new Error("llama: no verdicts");
+  const v = { ...outs[0] };
+  for (const o of outs.slice(1)) {
+    for (const k of Object.keys(o)) {
+      if (typeof o[k] === "number") v[k] = Math.max(num(v[k]), o[k]);
+      else if (typeof o[k] === "boolean") v[k] = k === "grainy" || k === "group_photo" ? (v[k] && o[k]) : (v[k] || o[k]);
+    }
+    if (o.full_body_visible && !outs[0].full_body_visible) v.body = o.body;
+  }
+  v._model = "cf/llama-3.2-11b-vision"; return v;
+}
+
+export default {
+  async fetch(request, env) {
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request) });
+    if (request.method !== "POST") return new Response("swiper-judge ok", { status: 200 });
+    if (!env.JUDGE_KEY || request.headers.get("X-Key") !== env.JUDGE_KEY) return json({ error: "bad key" }, 401, request);
+    let body;
+    try { body = await request.json(); } catch { return json({ error: "bad json" }, 400, request); }
+    const t0 = Date.now(), deadline = t0 + BUDGET;
+    const urls = ownPhotos((body.urls || []).slice(0, 9));
+    if (!urls.length) return json({ error: "no photos" }, 400, request);
+    const fetched = (await Promise.all(urls.map(fetchPhoto))).filter(Boolean);
+    const real = fetched.filter((p) => p.bytes.length >= TINY);
+    if (fetched.length && !real.length) return json({ error: `no usable photos (${fetched.length} tiny thumbnails, profile has no real pictures)` }, 200, request);
+    if (!real.length) return json({ error: "no photos could be fetched" }, 200, request);
+    const imgs = real.map((p) => ({ ct: p.ct, b64: b64(p.bytes) }));
+    const kb = Math.round(real.reduce((a, p) => a + p.bytes.length, 0) / 1024);
+    const t1 = Date.now();
+    const errs = [];
+    try {
+      let v = await gemini(env, body.text || "", imgs, deadline, false);
+      if (emptyVerdict(v) && deadline - Date.now() > 8000) {
+        try { const v2 = await gemini(env, body.text || "", imgs, deadline, true); if (!emptyVerdict(v2)) v = v2; } catch {}
+      }
+      v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+      return json(v, 200, request);
+    } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
+    try {
+      const v = await llamaVision(env, body.text || "", imgs, deadline);
+      v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+      v._fallback = errs[0];
+      return json(v, 200, request);
+    } catch (e) { errs.push("llama: " + String(e.message || e).slice(0, 100)); }
+    return json({ error: "all models failed: " + errs.join(" | "), kind: "brain_down" }, 200, request);
+  },
+};

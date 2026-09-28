@@ -26,6 +26,21 @@ def keychain(s):
 
 
 GKEY, ORKEY = keychain("gemini"), keychain("openrouter")
+JUDGE_URL, JUDGE_KEY = "https://swiper-judge.sylvesterassiamahpm.workers.dev", keychain("swiper-judge-key")  # worker/ in this repo: Workers AI vision, our own quota
+
+
+def cf_worker(text, imgs, deadline):
+    """Fallback brain: the swiper-judge Worker (Workers AI llama-3.2-11b-vision) when the free Gemini tier throttles."""
+    left = deadline - time.time()
+    if left < 6:
+        raise RuntimeError("no time left for the worker")
+    body = json.dumps({"text": text, "images": [{"mime": ct, "b64": base64.b64encode(b).decode()} for b, ct in imgs[:6]]}).encode()
+    req = urllib.request.Request(JUDGE_URL, data=body, headers={"Content-Type": "application/json", "X-Key": JUDGE_KEY, "User-Agent": "swiper-bridge/1.0"})
+    with urllib.request.urlopen(req, timeout=min(40, left)) as r:
+        d = json.loads(r.read())
+    if d.get("error"):
+        raise RuntimeError("worker: " + str(d["error"])[:80])
+    v = first_json(d["text"]); v["_model"] = "cf/" + d.get("model", "").split("/")[-1]; return v
 
 
 class Tab:
@@ -224,13 +239,18 @@ def judge(req):
         v["_timing"] = f"fetch {t1 - t0:.1f}s ({kb}KB) model {time.time() - t1:.1f}s"
         return v
     except Exception as e:
-        if deadline - time.time() < 10:
-            return {"error": f"gemini too slow ({str(e)[:60]})"}
-        log(f"gemini exhausted ({str(e)[:60]}), trying openrouter")
+        log(f"gemini exhausted ({str(e)[:60]}), trying the worker")
+    try:
+        v = cf_worker(req["text"], imgs, deadline)
+        v["_timing"] = f"fetch {t1 - t0:.1f}s ({kb}KB) model {time.time() - t1:.1f}s"
+        return v
+    except Exception as e:
+        log(f"worker failed ({str(e)[:80]}), trying openrouter")
     try:
         return openrouter(req["text"], imgs, deadline)
     except Exception as e:
-        return {"error": f"all models failed: {str(e)[:80]}"}
+        # every brain is down: tell the page to HOLD (no strike, no pass) instead of burning cards
+        return {"error": f"all models failed: {str(e)[:80]}", "kind": "brain_down"}
 
 
 def ensure_running(tab):

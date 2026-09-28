@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.3.4';
+  var VERSION = '1.4.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -36,7 +36,9 @@
     vision: {
       enabled: true,
       key: '',
-      provider: 'openrouter', // openrouter | gemini | bridge (desktop: tools/dia_bridge.py fetches photos + judges on the Mac)
+      provider: 'worker',     // worker (swiper-judge Cloudflare Worker: fetches photos + judges, works from any device) | openrouter | gemini | bridge (desktop: tools/dia_bridge.py on the Mac)
+      workerUrl: 'https://swiper-judge.sylvesterassiamahpm.workers.dev/judge',
+      workerKey: '',          // X-Key for the worker (Mac keychain `swiper-judge-key`)
       geminiKey: '',
       geminiModel: 'gemini-3.5-flash-lite, gemini-3.1-flash-lite',   // tried in order; each has its own free daily quota
       models: 'nex-agi/nex-n2.5-pro:free, inclusionai/ling-3.0-flash-vl:free, dots-studio/dots-3-note-preview:free, google/gemma-4-31b-it:free',
@@ -105,6 +107,7 @@
     cfg.likeRatio = 0; cfg.speed = 1; cfg.maxPerSession = 100000; cfg.maxPerDay = 100000; cfg.breakEvery = [100000, 100001]; cfg.hours.enabled = false;
     cfg.rulesVersion = 3; saveCfg();
   }
+  if ((cfg.rulesVersion || 0) < 4) { if (cfg.vision.provider !== 'bridge') cfg.vision.provider = 'worker'; cfg.vision.workerUrl = DEFAULTS.vision.workerUrl; cfg.rulesVersion = 4; saveCfg(); }
 
   function today() { return new Date().toISOString().slice(0, 10); }
   var stats = loadJSON(LS_STATS, {});
@@ -390,7 +393,7 @@
   }
   // bridge provider: hand the request to a helper on the Mac (tools/dia_bridge.py) that polls this queue over CDP
   var bridge = window.__swiperBridge = window.__swiperBridge || { q: [], waiting: {}, take: function () { var t = this.q; this.q = []; return t; },
-    deliver: function (id, v) { var w = this.waiting[id]; if (w) { delete this.waiting[id]; v && v.error ? w.rej(new Error(v.error)) : w.res(v); } } };
+    deliver: function (id, v) { var w = this.waiting[id]; if (w) { delete this.waiting[id]; if (v && v.error) { var err = new Error(v.error); err.brainDown = v.kind === 'brain_down'; w.rej(err); } else w.res(v); } } };
   function bridgeJudge(text, urls) {
     return new Promise(function (res, rej) {
       var id = 'j' + Date.now() + Math.random().toString(36).slice(2, 6);
@@ -399,9 +402,26 @@
       setTimeout(function () { if (bridge.waiting[id]) { delete bridge.waiting[id]; rej(new Error('bridge helper not answering (is tools/dia_bridge.py running?)')); } }, (cfg.vision.bridgeTimeout || 45) * 1000);
     });
   }
+  function workerJudge(text, urls) {
+    var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var to = setTimeout(function () { if (ctl) ctl.abort(); }, (cfg.vision.bridgeTimeout || 45) * 1000);
+    return fetch(cfg.vision.workerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Key': cfg.vision.workerKey }, body: JSON.stringify({ text: text, urls: urls }), signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { if (r.status === 401) throw new Error('worker: bad key'); return r.json(); })
+      .then(function (v) {
+        if (v && v.error) { var err = new Error(v.error); err.brainDown = v.kind === 'brain_down'; throw err; }
+        return v;
+      }).catch(function (e) { if (e && e.name === 'AbortError') throw new Error('worker not answering in ' + (cfg.vision.bridgeTimeout || 45) + 's'); throw e; })
+      .then(function (v) { clearTimeout(to); return v; }, function (e) { clearTimeout(to); throw e; });
+  }
   function judge(profile) {
     var urls = profile.photos.slice(0, cfg.vision.maxPhotos);
     if (!urls.length) return Promise.reject(new Error('no photos'));
+    if (cfg.vision.provider === 'worker') {
+      return workerJudge(PROMPT + (profile.bio ? '\nProfile text: ' + profile.bio.slice(0, 300) : ''), urls).then(function (v) {
+        if (!Number(v.face) && !Number(v.feminine) && !Number(v.photo_quality) && !Number(v.curves)) throw new Error('empty verdict from ' + v._model);
+        return v;
+      });
+    }
     if (cfg.vision.provider === 'bridge') {
       return bridgeJudge(PROMPT + (profile.bio ? '\nProfile text: ' + profile.bio.slice(0, 300) : ''), urls).then(function (v) {
         if (!Number(v.face) && !Number(v.feminine) && !Number(v.photo_quality) && !Number(v.curves)) throw new Error('empty verdict from ' + v._model);
@@ -430,7 +450,7 @@
       return v;
     });
   }
-  function visionReady() { return cfg.vision.provider === 'bridge' || !!(cfg.vision.geminiKey || cfg.vision.key); }
+  function visionReady() { return cfg.vision.provider === 'bridge' || (cfg.vision.provider === 'worker' ? !!(cfg.vision.workerUrl && cfg.vision.workerKey) : !!(cfg.vision.geminiKey || cfg.vision.key)); }
   function applyVerdict(v) {
     var V = cfg.vision;
     function num(x) { var n = Number(x); return (x === null || x === undefined || x === '' || isNaN(n)) ? null : n; }
@@ -636,6 +656,7 @@
         }).catch(function (e) {
           if (cfg.vision.onFail === 'nope') { log('vision failed (' + e.message + '), nope', 'warn'); return { d: 'nope', why: 'vision failed' }; }
           if (cfg.vision.onFail === 'ratio') { log('vision failed (' + e.message + '), using ratio', 'warn'); return null; }
+          if (e && e.brainDown) { log('every vision model is down (' + e.message + '), holding ' + (cfg.vision.holdSec || 20) + 's, not counting it against this card', 'warn'); return { d: 'wait', why: e.message }; }
           visionFails[ck] = (visionFails[ck] || 0) + 1;
           if (visionFails[ck] >= (cfg.vision.maxRetries || 3)) { log('vision failed ' + visionFails[ck] + 'x on this card (' + e.message + '), passing it so the lane keeps moving', 'warn'); return { d: 'nope', why: 'vision unreadable x' + visionFails[ck] }; }
           log('vision failed (' + e.message + '), holding ' + (cfg.vision.holdSec || 20) + 's, try ' + visionFails[ck] + '/' + (cfg.vision.maxRetries || 3), 'warn'); return { d: 'wait', why: e.message };
@@ -756,7 +777,8 @@
     // Vision
     bodies.Vision.append(
       field('Vision judge on', 'vision.enabled', 'check'),
-      field('Provider', 'vision.provider', 'select', { options: ['openrouter', 'gemini', 'bridge'] }),
+      field('Provider', 'vision.provider', 'select', { options: ['worker', 'openrouter', 'gemini', 'bridge'] }),
+      field('Worker key (swiper-judge)', 'vision.workerKey', 'password', { placeholder: 'from the Mac keychain swiper-judge-key' }),
       field('OpenRouter key', 'vision.key', 'password', { placeholder: 'sk-or-v1-...' }),
       field('Models (comma, first wins)', 'vision.models', 'textarea'),
       field('Gemini key (aistudio.google.com/apikey)', 'vision.geminiKey', 'password', { placeholder: 'AIza...' }),

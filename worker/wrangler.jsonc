@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "swiper-judge",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "ai": { "binding": "AI" },
+  "observability": { "enabled": true }
+}
