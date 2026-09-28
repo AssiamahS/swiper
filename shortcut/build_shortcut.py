@@ -10,7 +10,7 @@ Usage:  python3 shortcut/build_shortcut.py            # writes shortcut/Swiper.s
 import argparse, plistlib, subprocess, sys, uuid
 from pathlib import Path
 
-DEFAULT_URL = "https://raw.githubusercontent.com/AssiamahS/swiper/main/swiper.js"
+DEFAULT_URL = "https://swiper-judge.sylvesterassiamahpm.workers.dev/swiper.js"
 
 LOADER = """(function(){
   var u = '%s?t=' + Date.now();

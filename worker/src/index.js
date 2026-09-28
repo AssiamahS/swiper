@@ -60,8 +60,10 @@ function b64(bytes) {
   return btoa(s);
 }
 
+let geminiDownUntil = 0;   // isolate-local: after a 503/timeout on every model, skip gemini for a while and go straight to mistral
 async function gemini(env, text, imgs, deadline, reverse) {
-  let last = null;
+  if (Date.now() < geminiDownUntil) throw new Error("gemini: skipped, throttled " + Math.round((geminiDownUntil - Date.now()) / 1000) + "s ago");
+  let last = null; let allDown = true;
   const order = reverse ? [...GEMINI_MODELS].reverse() : GEMINI_MODELS;
   for (const model of order) {
     const left = deadline - Date.now();
@@ -74,12 +76,13 @@ async function gemini(env, text, imgs, deadline, reverse) {
         body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 800, responseMimeType: "application/json" } }),
       });
       const d = await r.json();
-      if (!r.ok) { last = `${model}: HTTP ${r.status} ${(d.error && d.error.message || "").slice(0, 60)}`; continue; }
+      if (!r.ok) { last = `${model}: HTTP ${r.status} ${(d.error && d.error.message || "").slice(0, 60)}`; if (r.status !== 503 && r.status !== 429) allDown = false; continue; }
       const out = (d.candidates[0].content.parts || []).map((p) => p.text || "").join("");
       const v = firstJson(out); v._model = model; return v;
-    } catch (e) { last = `${model}: ${String(e).slice(0, 60)}`; }
+    } catch (e) { last = `${model}: ${String(e).slice(0, 60)}`; if (!/abort|timeout/i.test(String(e))) allDown = false; }
     finally { clearTimeout(t); }
   }
+  if (allDown) geminiDownUntil = Date.now() + 90000;
   throw new Error(last || "gemini failed");
 }
 
@@ -89,6 +92,16 @@ const LLAMA_PROMPT = 'You rate dating profile photos. Look at the photo and repl
   'face (0-10, how attractive the face is), sexy_vibe (0-10), photo_quality (0-10), grainy (true/false), group_photo (true/false), dyed_hair (true only for unnatural hair colors), ' +
   'facial_piercings (true for septum, lip, eyebrow, bridge, cheek, or two or more face piercings; one nose stud = false), alt_style (true for emo, goth or punk styling), gym_selfie (true/false). ' +
   'Rate what you actually see; do not guess middle values for everything.';
+const MISTRAL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
+async function mistralVision(env, text, imgs, deadline) {
+  // second brain: Mistral Small 3.1 on Workers AI, takes several images in one call, same full prompt as Gemini
+  const left = deadline - Date.now();
+  if (left < 6000) throw new Error("no time");
+  const content = [{ type: "text", text }, ...imgs.slice(0, 6).map((im) => ({ type: "image_url", image_url: { url: `data:${im.ct};base64,${im.b64}` } }))];
+  const out = await env.AI.run(MISTRAL, { messages: [{ role: "user", content }], max_tokens: 500, temperature: 0 });
+  const v = firstJson(String(pick(out))); v._model = "cf/mistral-small-3.1"; return v;
+}
+
 async function llamaVision(env, text, imgs, deadline) {
   // single image per call on this model; judge up to 3 photos and merge (max scores, any-true flags, body from the fullest photo)
   const outs = [], errs = [];
@@ -135,11 +148,38 @@ async function githubModels(env, text, imgs, deadline) {
   } finally { clearTimeout(t); }
 }
 
+const INSTALL_HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>swiper</title>
+<body style="font:17px -apple-system,system-ui;background:#111;color:#eee;padding:24px;max-width:520px;margin:auto">
+<h2>swiper</h2><p>1. <a style="color:#fd5068" href="/Swiper.shortcut">Add the Shortcut</a> (tap, then Add Shortcut).</p>
+<p>2. In Safari open <b>tinder.com</b>, tap Share, run <b>Swiper</b>.</p><p>3. Panel &rarr; Vision tab &rarr; paste the worker key once. Start.</p></body>`;
+
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request) });
-    if (request.method !== "POST") return new Response("swiper-judge ok", { status: 200 });
+    if (request.method === "GET" && (url.pathname === "/swiper.js" || url.pathname === "/Swiper.shortcut")) {
+      // the script the iOS Shortcut evals inside tinder.com (repo is private, so GitHub raw is out); any origin, never cached
+      const r = await env.ASSETS.fetch(request);
+      const h = new Headers(r.headers); h.set("Access-Control-Allow-Origin", "*"); h.set("Cache-Control", "no-store");
+      if (url.pathname === "/swiper.js") h.set("Content-Type", "application/javascript; charset=utf-8");
+      return new Response(r.body, { status: r.status, headers: h });
+    }
+    if (request.method === "GET" && url.pathname === "/") return new Response(INSTALL_HTML, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     if (!env.JUDGE_KEY || request.headers.get("X-Key") !== env.JUDGE_KEY) return json({ error: "bad key" }, 401, request);
+    if (url.pathname === "/log" && request.method === "POST") {
+      // taste dataset: verdict + decision only, never photos. key = time-sortable
+      let e; try { e = await request.json(); } catch { return json({ error: "bad json" }, 400, request); }
+      const key = `log:${new Date().toISOString()}:${Math.random().toString(36).slice(2, 7)}`;
+      await env.LOG.put(key, JSON.stringify({ ...e, ua: (request.headers.get("User-Agent") || "").slice(0, 60) }));
+      return json({ ok: true }, 200, request);
+    }
+    if (url.pathname === "/log" && request.method === "GET") {
+      const lim = Math.min(1000, +(url.searchParams.get("limit") || 200));
+      const list = await env.LOG.list({ prefix: "log:", limit: lim, cursor: url.searchParams.get("cursor") || undefined });
+      const rows = await Promise.all(list.keys.map(async (k) => ({ key: k.name, ...(JSON.parse((await env.LOG.get(k.name)) || "{}")) })));
+      return json({ rows, cursor: list.list_complete ? null : list.cursor }, 200, request);
+    }
+    if (request.method !== "POST") return new Response("swiper-judge ok", { status: 200 });
     let body;
     try { body = await request.json(); } catch { return json({ error: "bad json" }, 400, request); }
     const t0 = Date.now(), deadline = t0 + BUDGET;
@@ -153,7 +193,7 @@ export default {
     const kb = Math.round(real.reduce((a, p) => a + p.bytes.length, 0) / 1024);
     const t1 = Date.now();
     const errs = [];
-    if (body.force === "llama" || body.force === "github") {
+    if (body.force === "llama" || body.force === "github" || body.force === "mistral") {
       errs.push("forced " + body.force);
     } else {
       try {
@@ -165,7 +205,16 @@ export default {
         return json(v, 200, request);
       } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
     }
-    if (body.force !== "llama") {
+    if (body.force !== "llama" && body.force !== "github") {
+      try {
+        const v = await mistralVision(env, body.text || "", imgs, deadline);
+        v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+        v._fallback = errs[0];
+        return json(v, 200, request);
+      } catch (e) { errs.push("mistral: " + String(e.message || e).slice(0, 100)); }
+      if (body.force === "mistral") return json({ error: errs.join(" | ") }, 200, request);
+    }
+    if (body.force === "github") {
       try {
         const v = await githubModels(env, body.text || "", imgs, deadline);
         v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;

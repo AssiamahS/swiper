@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.4.0';
+  var VERSION = '1.4.1';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -514,6 +514,7 @@
   }
   var lastProfile = null;
   var visionFails = {};   // card key -> consecutive vision failures (cap = cfg.vision.maxRetries)
+  var lastVerdict = null; // verdict of the card being swiped, logged with the decision (taste dataset, no photos)
   function handleMatch(modal) {
     stats.matches++; saveStats(); renderStats();
     log('MATCH' + (lastProfile && lastProfile.name ? ' with ' + lastProfile.name : ''), 'good');
@@ -650,7 +651,7 @@
       if (!dec && cfg.vision.enabled && visionReady() && p.photos.length) {
         setStatus('judging ' + (p.name || 'card') + '...');
         return judge(p).then(function (v) {
-          stats.judged++; var r = applyVerdict(v);
+          stats.judged++; lastVerdict = v; var r = applyVerdict(v);
           log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, bust: v.bust, sexy: v.sexy_vibe, fit: v.in_shape, full: v.full_body_visible, dyed: v.dyed_hair, butt: v.glutes, gym: v.gym_selfie, pierce: v.facial_piercings, alt: v.alt_style, n: p.photos.length }) + ' [' + v._model + ']');
           return r;
         }).catch(function (e) {
@@ -675,6 +676,10 @@
       if (!d) return;
       var how = swipe(d.d); lastDecision = d.d; lastCardAt = Date.now();
       if (d.d === 'like') stats.likes++; else stats.nopes++;
+      if (cfg.vision.provider === 'worker' && cfg.vision.workerKey && lastVerdict) {
+        try { fetch(cfg.vision.workerUrl.replace(/\/judge$/, '') + '/log', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Key': cfg.vision.workerKey }, body: JSON.stringify({ name: p.name, age: p.age, decision: d.d, why: d.why, verdict: lastVerdict, bio: (p.bio || '').slice(0, 200), t: Date.now() }), keepalive: true }).catch(function () {}); } catch (e) {}
+        lastVerdict = null;
+      }
       sessionSwipes++; sinceBreak++; saveStats(); renderStats();
       log((d.d === 'like' ? 'LIKE ' : 'NOPE ') + (p.name || '?') + ' (' + d.why + ', ' + how + ')', d.d === 'like' ? 'good' : '');
       return sleep(rnd(400, 1200));

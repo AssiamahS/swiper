@@ -5,3 +5,6 @@ bumble/log.txt
 bumble/config.json
 tools/certs/
 bumble/.lock
+worker/public/
+worker/node_modules/
+worker/.wrangler/

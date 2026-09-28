@@ -1,5 +1,5 @@
 (function(){
-  var u = 'https://raw.githubusercontent.com/AssiamahS/swiper/main/swiper.js?t=' + Date.now();
+  var u = 'https://swiper-judge.sylvesterassiamahpm.workers.dev/swiper.js?t=' + Date.now();
   var x = new XMLHttpRequest();
   x.onreadystatechange = function(){
     if (x.readyState !== 4) return;
