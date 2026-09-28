@@ -220,24 +220,28 @@ export class Relay {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.state.acceptWebSocket(server);
-      if (this.seat && this.seat !== server) { try { this.seat.close(1000, "replaced"); } catch {} }
       this.seat = server;
       return new Response(null, { status: 101, webSocket: client });
     }
     if (url.pathname === "/relay/status") {
-      return Response.json({ seat: !!this.seat, pending: this.pending.size, sockets: this.state.getWebSockets().length });
+      return Response.json({ seat: this.state.getWebSockets().length > 0, pending: this.pending.size, sockets: this.state.getWebSockets().length });
     }
     if (url.pathname === "/relay/job") {
-      const seat = this.seat || this.state.getWebSockets()[0];
-      if (!seat) return Response.json({ error: "runner: no seat connected" });
+      // several runners can hold seats; hand the job to one that is not busy (least jobs in flight)
+      this.busy = this.busy || new Map();
+      const seats = this.state.getWebSockets();
+      if (!seats.length) return Response.json({ error: "runner: no seat connected" });
+      const seat = seats.slice().sort((a, b) => (this.busy.get(a) || 0) - (this.busy.get(b) || 0))[0];
+      this.busy.set(seat, (this.busy.get(seat) || 0) + 1);
+      const done = () => this.busy.set(seat, Math.max(0, (this.busy.get(seat) || 1) - 1));
       const body = await request.json();
       const id = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      const waitMs = Math.max(1000, Math.min(60000, body.waitMs || 38000));
+      const waitMs = Math.max(1000, Math.min(85000, body.waitMs || 38000));
       const verdict = await new Promise((resolve) => {
-        const t = setTimeout(() => { this.pending.delete(id); resolve({ error: "runner: no answer in " + Math.round(waitMs / 1000) + "s" }); }, waitMs);
-        this.pending.set(id, (v) => { clearTimeout(t); resolve(v); });
+        const t = setTimeout(() => { this.pending.delete(id); done(); resolve({ error: "runner: no answer in " + Math.round(waitMs / 1000) + "s" }); }, waitMs);
+        this.pending.set(id, (v) => { clearTimeout(t); done(); resolve(v); });
         try { seat.send(JSON.stringify({ type: "job", id, text: body.text, urls: body.urls })); }
-        catch (e) { clearTimeout(t); this.pending.delete(id); resolve({ error: "runner: send failed " + String(e).slice(0, 60) }); }
+        catch (e) { clearTimeout(t); this.pending.delete(id); done(); resolve({ error: "runner: send failed " + String(e).slice(0, 60) }); }
       });
       return Response.json(verdict);
     }
@@ -251,10 +255,11 @@ export class Relay {
   webSocketClose(ws) { if (this.seat === ws) this.seat = null; }
   webSocketError(ws) { if (this.seat === ws) this.seat = null; }
 }
-async function runnerJudge(env, text, imgs, urls, deadline) {
+const RUNNER_WINDOW = 85000;   // the CPU runner needs 30-70s per card; the page waits 95s on the worker call
+async function runnerJudge(env, text, imgs, urls, t0) {
   if (!env.RELAY) throw new Error("runner: no relay binding");
-  const left = deadline - Date.now();
-  if (left < 6000) throw new Error("runner: no time");
+  const left = t0 + RUNNER_WINDOW - Date.now();
+  if (left < 15000) throw new Error("runner: no time");
   const stub = env.RELAY.get(env.RELAY.idFromName("seat"));
   const r = await stub.fetch("https://relay/relay/job", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, urls, waitMs: left - 2000 }) });
   const v = await r.json();
@@ -335,7 +340,7 @@ export default {
     }
     if (body.force === "runner" || (body.force !== "llama" && body.force !== "github")) {
       try {
-        const v = await runnerJudge(env, body.text || "", imgs, urls, deadline);
+        const v = await runnerJudge(env, body.text || "", imgs, urls, t0);
         v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
         v._fallback = errs[0];
         return json(v, 200, request);
