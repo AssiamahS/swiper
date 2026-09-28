@@ -1,10 +1,11 @@
 // swiper-judge: the swiper vision brain, so the Tinder lane works from any device with no Mac involved.
 // POST /judge { text, urls: [photo urls] }  header X-Key  ->  verdict JSON ({ error, kind } when it cannot judge)
 // Photos are fetched here (the CDN has no CORS for the page), Gemini judges (own key), Workers AI llama-vision is the fallback.
-const GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
+// every flash model has its own free quota and its own 503 spikes; fastest first (probed 2026-09-28: 3.6 1.2s, 3-preview 1.8s, lite-preview 4.6s, 3.8 4.9s, lite-latest 6.6s, 3.5/3.1-lite 12-20s under load)
+const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-3.8-flash", "gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest"];
 const CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const TINY = 12 * 1024;          // below this a "photo" is a preview thumbnail, never judge it
-const MODEL_TIMEOUT = 20000;     // ms per model call
+const MODEL_TIMEOUT = 12000;     // ms per model call (several models must fit in the budget)
 const BUDGET = 40000;            // ms total, the page waits 45s
 const UID_RE = /\/u\/([^/]+)\//;
 const pick = (out) => { if (typeof out === "string") return out; const r = out?.response ?? out?.choices?.[0]?.message?.content ?? out; return typeof r === "string" ? r : JSON.stringify(r); };
@@ -60,14 +61,15 @@ function b64(bytes) {
   return btoa(s);
 }
 
-let geminiDownUntil = 0;   // isolate-local: after a 503/timeout on every model, skip gemini for a while and go straight to mistral
+const modelDownUntil = {};   // isolate-local, PER MODEL: a 503/429/timeout benches that one model for 60s, the others keep serving
 async function gemini(env, text, imgs, deadline, reverse) {
-  if (Date.now() < geminiDownUntil) throw new Error("gemini: skipped, throttled " + Math.round((geminiDownUntil - Date.now()) / 1000) + "s ago");
-  let last = null; let allDown = true;
-  const order = reverse ? [...GEMINI_MODELS].reverse() : GEMINI_MODELS;
+  let last = null; let tried = 0;
+  const order = (reverse ? [...GEMINI_MODELS].reverse() : GEMINI_MODELS).filter((m) => Date.now() >= (modelDownUntil[m] || 0));
+  if (!order.length) throw new Error("gemini: every model benched (503/429/timeouts), retry in " + Math.round((Math.min(...Object.values(modelDownUntil)) - Date.now()) / 1000) + "s");
   for (const model of order) {
     const left = deadline - Date.now();
-    if (left < 4000) break;
+    if (left < 4000 || tried >= 4) break;
+    tried++;
     const parts = [{ text }, ...imgs.map((im) => ({ inline_data: { mime_type: im.ct, data: im.b64 } }))];
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), Math.min(MODEL_TIMEOUT, left));
     try {
@@ -76,13 +78,12 @@ async function gemini(env, text, imgs, deadline, reverse) {
         body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 800, responseMimeType: "application/json" } }),
       });
       const d = await r.json();
-      if (!r.ok) { last = `${model}: HTTP ${r.status} ${(d.error && d.error.message || "").slice(0, 60)}`; if (r.status !== 503 && r.status !== 429) allDown = false; continue; }
+      if (!r.ok) { last = `${model}: HTTP ${r.status} ${(d.error && d.error.message || "").slice(0, 60)}`; if (r.status === 503 || r.status === 429) modelDownUntil[model] = Date.now() + 60000; continue; }
       const out = (d.candidates[0].content.parts || []).map((p) => p.text || "").join("");
       const v = firstJson(out); v._model = model; return v;
-    } catch (e) { last = `${model}: ${String(e).slice(0, 60)}`; if (!/abort|timeout/i.test(String(e))) allDown = false; }
+    } catch (e) { last = `${model}: ${String(e).slice(0, 60)}`; if (/abort|timeout/i.test(String(e))) modelDownUntil[model] = Date.now() + 60000; }
     finally { clearTimeout(t); }
   }
-  if (allDown) geminiDownUntil = Date.now() + 90000;
   throw new Error(last || "gemini failed");
 }
 
@@ -120,7 +121,9 @@ async function llamaVision(env, text, imgs, deadline) {
   const v = { ...outs[0] };
   for (const o of outs.slice(1)) {
     for (const k of Object.keys(o)) {
-      if (typeof o[k] === "number") v[k] = Math.max(num(v[k]), o[k]);
+      if (k === "feminine") v[k] = Math.min(num(v[k]), o[k]);                       // gender is a veto across photos, never a max
+      else if (k === "is_woman") v[k] = v[k] === true && o[k] === true;
+      else if (typeof o[k] === "number") v[k] = Math.max(num(v[k]), o[k]);
       else if (typeof o[k] === "boolean") v[k] = k === "grainy" || k === "group_photo" ? (v[k] && o[k]) : (v[k] || o[k]);
     }
     if (o.full_body_visible && !outs[0].full_body_visible) v.body = o.body;

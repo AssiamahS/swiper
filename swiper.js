@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.4.2';
+  var VERSION = '1.4.3';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -50,7 +50,7 @@
       curvesAutoLike: 7,      // curves score >= this -> like
       maxPhotos: 9,
       requireFullBody: true,
-      minFeminine: 6,
+      minFeminine: 8,
       bustAutoLike: 7,          // like at/above (still needs a full-body photo)
       sexyAutoLike: 7,
       minFace: 6,               // nope below this
@@ -110,6 +110,8 @@
   if ((cfg.rulesVersion || 0) < 4) { if (cfg.vision.provider !== 'bridge') cfg.vision.provider = 'worker'; cfg.vision.workerUrl = DEFAULTS.vision.workerUrl; cfg.rulesVersion = 4; saveCfg(); }
   // rules v5 (2026-09-28): human pacing back — 370 full-speed swipes drained a passport pool in an afternoon and looked mechanical
   if ((cfg.rulesVersion || 0) < 5) { cfg.speed = 3; cfg.maxPerSession = 120; cfg.maxPerDay = 200; cfg.breakEvery = [14, 38]; cfg.breakLen = [20, 95]; cfg.sleepLen = [120, 240]; cfg.rulesVersion = 5; saveCfg(); }
+  // rules v6 (2026-09-28): never a man — the fallback brains (mistral/llama) are looser on gender than gemini, so the bar is 8+ like instaFollowUp
+  if ((cfg.rulesVersion || 0) < 6) { cfg.vision.minFeminine = Math.max(8, cfg.vision.minFeminine || 0); cfg.rulesVersion = 6; saveCfg(); }
 
   function today() { return new Date().toISOString().slice(0, 10); }
   var stats = loadJSON(LS_STATS, {});
@@ -460,7 +462,7 @@
     var body = String(v.body || '').toLowerCase();
     var reject = String(V.rejectBodies || '').split(',').map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
     // hard passes
-    if (v.is_woman === false || (fem !== null && fem < (V.minFeminine || 6))) return { d: 'nope', why: 'not a woman' };
+    if (v.is_woman !== true || fem === null || fem < (V.minFeminine || 8)) return { d: 'nope', why: 'not a woman (' + v.is_woman + ', feminine ' + fem + ')' };
     if (reject.indexOf(body) >= 0 && (conf === null || conf >= V.minBodyConf)) return { d: 'nope', why: 'body ' + body };
     if (v.in_shape === false) return { d: 'nope', why: 'out of shape' };
     if (V.nopeDyedHair && v.dyed_hair === true) return { d: 'nope', why: 'dyed hair' };
