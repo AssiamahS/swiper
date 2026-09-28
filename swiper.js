@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.3.2';
+  var VERSION = '1.3.3';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -59,6 +59,9 @@
       likeBodies: '',           // e.g. 'slim, athletic' -> like when body matches and quality >= likeMinQuality
       likeMinQuality: 7,
       onFail: 'wait',           // wait | nope | ratio when the vision call fails
+      holdSec: 20,              // seconds to hold before re-asking when vision fails
+      maxRetries: 3,            // vision failures on one card before it is passed
+      bridgeTimeout: 45,        // seconds to wait for tools/dia_bridge.py
       proxy: ''                 // desktop only: http://127.0.0.1:8802/img?u=  (tools/imgproxy.py) when the CDN blocks CORS
     },
     geo: {
@@ -393,7 +396,7 @@
       var id = 'j' + Date.now() + Math.random().toString(36).slice(2, 6);
       bridge.waiting[id] = { res: res, rej: rej };
       bridge.q.push({ id: id, text: text, urls: urls });
-      setTimeout(function () { if (bridge.waiting[id]) { delete bridge.waiting[id]; rej(new Error('bridge helper not answering (is tools/dia_bridge.py running?)')); } }, 90000);
+      setTimeout(function () { if (bridge.waiting[id]) { delete bridge.waiting[id]; rej(new Error('bridge helper not answering (is tools/dia_bridge.py running?)')); } }, (cfg.vision.bridgeTimeout || 45) * 1000);
     });
   }
   function judge(profile) {
@@ -490,6 +493,7 @@
       { maxTokens: 80, timeout: 20000 }).then(function (r) { return r.text.replace(/^["'\s]+|["'\s]+$/g, '').split('\n')[0]; });
   }
   var lastProfile = null;
+  var visionFails = {};   // card key -> consecutive vision failures (cap = cfg.vision.maxRetries)
   function handleMatch(modal) {
     stats.matches++; saveStats(); renderStats();
     log('MATCH' + (lastProfile && lastProfile.name ? ' with ' + lastProfile.name : ''), 'good');
@@ -632,12 +636,14 @@
         }).catch(function (e) {
           if (cfg.vision.onFail === 'nope') { log('vision failed (' + e.message + '), nope', 'warn'); return { d: 'nope', why: 'vision failed' }; }
           if (cfg.vision.onFail === 'ratio') { log('vision failed (' + e.message + '), using ratio', 'warn'); return null; }
-          log('vision failed (' + e.message + '), holding 60s (no blind swipes)', 'warn'); return { d: 'wait', why: e.message };
+          visionFails[ck] = (visionFails[ck] || 0) + 1;
+          if (visionFails[ck] >= (cfg.vision.maxRetries || 3)) { log('vision failed ' + visionFails[ck] + 'x on this card (' + e.message + '), passing it so the lane keeps moving', 'warn'); return { d: 'nope', why: 'vision unreadable x' + visionFails[ck] }; }
+          log('vision failed (' + e.message + '), holding ' + (cfg.vision.holdSec || 20) + 's, try ' + visionFails[ck] + '/' + (cfg.vision.maxRetries || 3), 'warn'); return { d: 'wait', why: e.message };
         });
       }
       return dec;
     }).then(function (d) {
-      if (d && d.d === 'wait') { lastCardKey = ''; return sleep(60000).then(function () { return null; }); }
+      if (d && d.d === 'wait') { lastCardKey = ''; return sleep((cfg.vision.holdSec || 20) * 1000).then(function () { return null; }); }
       if (!d) d = { d: Math.random() < cfg.likeRatio ? 'like' : 'nope', why: 'ratio' };
       if (Math.random() < cfg.openProfileChance) {
         var ob = card.querySelector('button[aria-label*="open profile" i], button[aria-label*="show more" i]');

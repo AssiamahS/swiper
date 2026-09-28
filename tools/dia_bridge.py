@@ -50,10 +50,38 @@ class Tab:
                 return m.get("result", {}).get("result", {}).get("value")
 
 
-def fetch_photo(u):
+def _get(u):
     req = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://tinder.com/"})
     with urllib.request.urlopen(req, timeout=20) as r:
         return r.read(), (r.headers.get("Content-Type") or "image/jpeg").split(";")[0]
+
+
+SIZE_RE = re.compile(r"/(\d+)x(\d+)_")
+TINY = 12 * 1024  # a real card photo is 40-120KB; the mobile card sometimes exposes 84x106 thumbnails
+
+
+def fetch_photo(u):
+    """Fetch the photo; when the URL is a small processed size (or the bytes are tiny) try the 640x800
+    rendition, then the original (the CDN signature covers the whole /u/<uid>/ folder)."""
+    m = SIZE_RE.search(u)
+    candidates = [u]
+    if m and int(m.group(1)) < 400:
+        candidates = [SIZE_RE.sub("/640x800_", u), SIZE_RE.sub("/", u), u]
+    best = None
+    for c in candidates:
+        try:
+            b, ct = _get(c)
+        except Exception:
+            continue
+        if best is None or len(b) > len(best[0]):
+            best = (b, ct)
+        if len(b) >= TINY:
+            break
+    if best is None:
+        raise RuntimeError("all renditions failed")
+    if len(best[0]) < TINY:
+        log(f"tiny photo {len(best[0]) // 1024}KB {u[:90]}")
+    return best
 
 
 def first_json(text):
@@ -76,9 +104,13 @@ def first_json(text):
     raise ValueError("no json")
 
 
-def gemini(text, imgs):
+def empty_verdict(v):
+    return not any(float(v.get(k) or 0) for k in ("face", "feminine", "photo_quality", "curves"))
+
+
+def gemini(text, imgs, reverse=False):
     last = None
-    for model in [m for m in GEMINI_MODELS for _ in (0, 1)]:  # each model gets a fast retry: Gemini latency spikes past 30s now and then
+    for model in [m for m in (GEMINI_MODELS[::-1] if reverse else GEMINI_MODELS) for _ in (0, 1)]:  # each model gets a fast retry: Gemini latency spikes past 30s now and then
         parts = [{"text": text}] + [{"inline_data": {"mime_type": ct, "data": base64.b64encode(b).decode()}} for b, ct in imgs]
         body = json.dumps({"contents": [{"parts": parts}], "generationConfig": {"temperature": 0, "maxOutputTokens": 800, "responseMimeType": "application/json"}}).encode()
         req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GKEY}", data=body, headers={"Content-Type": "application/json"})
@@ -131,6 +163,11 @@ def judge(req):
         return {"error": "no photos could be fetched"}
     try:
         v = gemini(req["text"], imgs)
+        if empty_verdict(v):  # all zeros = the model saw nothing usable; one more try on the other model before giving up
+            log(f"empty verdict from {v.get('_model')} on {sum(len(b) for b, _ in imgs) // 1024}KB, retrying on the other model")
+            v2 = gemini(req["text"], imgs, reverse=True)
+            if not empty_verdict(v2):
+                v = v2
         v["_timing"] = f"fetch {t1 - t0:.1f}s ({sum(len(b) for b, _ in imgs) // 1024}KB) model {time.time() - t1:.1f}s"
         return v
     except Exception as e:
