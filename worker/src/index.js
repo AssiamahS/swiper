@@ -236,7 +236,7 @@ export class Relay {
       const done = () => this.busy.set(seat, Math.max(0, (this.busy.get(seat) || 1) - 1));
       const body = await request.json();
       const id = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      const waitMs = Math.max(1000, Math.min(85000, body.waitMs || 38000));
+      const waitMs = Math.max(1000, Math.min(120000, body.waitMs || 38000));
       const verdict = await new Promise((resolve) => {
         const t = setTimeout(() => { this.pending.delete(id); done(); resolve({ error: "runner: no answer in " + Math.round(waitMs / 1000) + "s" }); }, waitMs);
         this.pending.set(id, (v) => { clearTimeout(t); done(); resolve(v); });
@@ -255,7 +255,7 @@ export class Relay {
   webSocketClose(ws) { if (this.seat === ws) this.seat = null; }
   webSocketError(ws) { if (this.seat === ws) this.seat = null; }
 }
-const RUNNER_WINDOW = 85000;   // the CPU runner needs 30-70s per card; the page waits 95s on the worker call
+const RUNNER_WINDOW = 120000;  // the CPU runner needs 60-80s per card (one photo); the page prefetches so this rarely blocks a swipe
 async function runnerJudge(env, text, imgs, urls, t0) {
   if (!env.RELAY) throw new Error("runner: no relay binding");
   const left = t0 + RUNNER_WINDOW - Date.now();

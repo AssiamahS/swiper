@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.5.1';
+  var VERSION = '1.6.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -64,6 +64,8 @@
       holdSec: 20,              // seconds to hold before re-asking when vision fails
       maxRetries: 3,            // vision failures on one card before it is passed
       bridgeTimeout: 45,        // seconds to wait for tools/dia_bridge.py
+      workerTimeout: 125,       // seconds to wait for the worker (gemini fast path, else the GitHub CPU runner at ~70s)
+      prefetch: 3,              // upcoming cards judged ahead of time (0 = off)
       proxy: ''                 // desktop only: http://127.0.0.1:8802/img?u=  (tools/imgproxy.py) when the CDN blocks CORS
     },
     geo: {
@@ -296,8 +298,11 @@
       }).filter(Boolean);
       var extra = [u.bio || ''].concat(((r.experiment_info || {}).user_interests || {}).selected_interests ? r.experiment_info.user_interests.selected_interests.map(function (i) { return i.name; }) : [])
         .concat((u.selected_descriptors || []).map(function (x) { return (x.choice_selections || []).map(function (c) { return c.name; }).join(' '); }));
-      recs[u.name + '|' + ageFrom(u.birth_date)] = { photos: photos, text: extra.join(' '), at: Date.now() };
+      var rk = u.name + '|' + ageFrom(u.birth_date);
+      recs[rk] = { photos: photos, text: extra.join(' '), at: Date.now() };
+      if (prefetchQueue.indexOf(rk) < 0) prefetchQueue.push(rk);
     });
+    setTimeout(prefetchTick, 0);
   }
   if (!window.__swiperHooked) {
     window.__swiperHooked = true;
@@ -318,6 +323,33 @@
     };
   }
   function recsFor(p) { return recs[p.name + '|' + p.age] || null; }
+
+  // ---------------------------------------------------------------- prefetch: judge upcoming recs before they are on screen
+  // Tinder hands the page the next batch of profiles; asking the brain now means a slow brain (the GitHub CPU seat, ~70s)
+  // costs throughput, not a wait on every card.
+  var verdictCache = {}, prefetchInFlight = 0, prefetchQueue = [];
+  function cacheKey(p) { return p.name + '|' + p.age; }
+  function prefetchOne(k) {
+    var rc = recs[k]; var parts = k.split('|');
+    var prof = { name: parts[0], age: +parts[1] || 0, photos: rc.photos.slice(0, cfg.vision.maxPhotos || 9), bio: rc.text || '', distance: null };
+    if (textDecision(prof)) return false;   // a text rule will decide this card, no vision needed
+    prefetchInFlight++;
+    var entry = verdictCache[k] = { at: Date.now() };
+    entry.promise = judge(prof).then(function (v) { entry.v = v; return v; }, function (e) { delete verdictCache[k]; throw e; })
+      .then(function (v) { prefetchInFlight--; prefetchTick(); return v; }, function (e) { prefetchInFlight--; prefetchTick(); throw e; });
+    entry.promise.catch(function () {});
+    return true;
+  }
+  function prefetchTick() {
+    var max = cfg.vision.prefetch === undefined ? 3 : cfg.vision.prefetch;
+    if (!running || !cfg.vision.enabled || !visionReady()) return;
+    while (prefetchInFlight < max && prefetchQueue.length) {
+      var k = prefetchQueue.shift();
+      if (recs[k] && !verdictCache[k] && recs[k].photos.length) prefetchOne(k);
+    }
+    var keys = Object.keys(verdictCache);
+    if (keys.length > 300) keys.sort(function (a, b) { return verdictCache[a].at - verdictCache[b].at; }).slice(0, keys.length - 300).forEach(function (k) { delete verdictCache[k]; });
+  }
 
   // ---------------------------------------------------------------- vision judge
   var PROMPT = 'You are rating dating-app profile photos for a personal swipe filter. Look at ALL photos and return ONLY a JSON object, no prose, no markdown:\n' +
@@ -424,13 +456,13 @@
   }
   function workerJudge(text, urls) {
     var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    var to = setTimeout(function () { if (ctl) ctl.abort(); }, (cfg.vision.bridgeTimeout || 45) * 1000);
+    var to = setTimeout(function () { if (ctl) ctl.abort(); }, (cfg.vision.workerTimeout || 95) * 1000);   // the worker may hand the card to the CPU runner (30-70s)
     return fetch(cfg.vision.workerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Key': cfg.vision.workerKey }, body: JSON.stringify({ text: text, urls: urls }), signal: ctl ? ctl.signal : undefined })
       .then(function (r) { if (r.status === 401) throw new Error('worker: bad key'); return r.json(); })
       .then(function (v) {
         if (v && v.error) { var err = new Error(v.error); err.brainDown = v.kind === 'brain_down'; throw err; }
         return v;
-      }).catch(function (e) { if (e && e.name === 'AbortError') throw new Error('worker not answering in ' + (cfg.vision.bridgeTimeout || 45) + 's'); throw e; })
+      }).catch(function (e) { if (e && e.name === 'AbortError') throw new Error('worker not answering in ' + (cfg.vision.workerTimeout || 95) + 's'); throw e; })
       .then(function (v) { clearTimeout(to); return v; }, function (e) { clearTimeout(to); throw e; });
   }
   function judge(profile) {
@@ -697,9 +729,12 @@
         return { d: 'wait', why: 'no vision key' };
       }
       if (!dec && cfg.vision.enabled && visionReady() && p.photos.length) {
-        setStatus('judging ' + (p.name || 'card') + '...');
-        return judge(p).then(function (v) {
+        var ce = verdictCache[cacheKey(p)];
+        setStatus((ce ? (ce.v ? 'verdict ready for ' : 'waiting on prefetch for ') : 'judging ') + (p.name || 'card') + '...');
+        var jp = ce ? (ce.v ? Promise.resolve(ce.v) : ce.promise) : judge(p);
+        return jp.then(function (v) {
           stats.judged++; lastVerdict = v; var r = applyVerdict(v);
+          if (ce) { delete verdictCache[cacheKey(p)]; prefetchTick(); }
           log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, bust: v.bust, sexy: v.sexy_vibe, fit: v.in_shape, full: v.full_body_visible, dyed: v.dyed_hair, butt: v.glutes, gym: v.gym_selfie, pierce: v.facial_piercings, alt: v.alt_style, n: p.photos.length }) + ' [' + v._model + ']');
           return r;
         }).catch(function (e) {
@@ -739,6 +774,7 @@
     if (cfg.vision.enabled && !visionReady()) log('vision on but no key for ' + cfg.vision.provider + ': will HOLD, paste a key in the Vision tab', 'warn');
     running = true; sessionSwipes = 0; sinceBreak = 0; scheduleBreak(); lastCardKey = '';
     if (cfg.geo.enabled) { installGeo(); if (cfg.geo.pushToTinder) pushLocation(); }
+    Object.keys(recs).forEach(function (k) { if (!verdictCache[k] && prefetchQueue.indexOf(k) < 0) prefetchQueue.push(k); }); setTimeout(prefetchTick, 0);
     if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }).catch(function () {});
     log('started (speed ' + cfg.speed + ', like ratio ' + Math.round(cfg.likeRatio * 100) + '%)'); renderRun(); loop();
   }
