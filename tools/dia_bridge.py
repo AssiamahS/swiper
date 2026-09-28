@@ -14,7 +14,7 @@ import websocket
 HERE = os.path.dirname(os.path.abspath(__file__))
 CDP = os.environ.get("SWIPER_CDP", "http://127.0.0.1:9223")
 GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
-OR_MODELS = ["nex-agi/nex-n2.5-pro:free", "inclusionai/ling-3.0-flash-vl:free", "dots-studio/dots-3-note-preview:free"]
+OR_MODELS = ["nex-agi/nex-n2.5-pro:free", "google/gemma-4-31b-it:free"]  # ling-3.0 is 404 now, dots returns no JSON
 
 
 def log(m):
@@ -108,14 +108,40 @@ def empty_verdict(v):
     return not any(float(v.get(k) or 0) for k in ("face", "feminine", "photo_quality", "curves"))
 
 
-def gemini(text, imgs, reverse=False):
+MODEL_TIMEOUT = 20      # per call; the page gives the bridge 45s in total (cfg.vision.bridgeTimeout)
+BUDGET = 42             # seconds from request start to give up, so the page never times out first
+slow_until = {}         # model -> epoch until which we try the other model first (after a timeout)
+
+
+def shrink(b, ct, max_side=768):
+    """Downscale to <=768px JPEG: fewer bytes, and Gemini bills/tiles big images, so it answers faster."""
+    try:
+        from PIL import Image
+        import io
+        im = Image.open(io.BytesIO(b))
+        if max(im.size) <= max_side and len(b) < 160 * 1024:
+            return b, ct
+        im = im.convert("RGB"); im.thumbnail((max_side, max_side))
+        out = io.BytesIO(); im.save(out, "JPEG", quality=80)
+        return out.getvalue(), "image/jpeg"
+    except Exception:
+        return b, ct
+
+
+def gemini(text, imgs, deadline, reverse=False):
     last = None
-    for model in [m for m in (GEMINI_MODELS[::-1] if reverse else GEMINI_MODELS) for _ in (0, 1)]:  # each model gets a fast retry: Gemini latency spikes past 30s now and then
+    order = GEMINI_MODELS[::-1] if reverse else list(GEMINI_MODELS)
+    now = time.time()
+    order.sort(key=lambda m: slow_until.get(m, 0) > now)  # a model that just timed out goes last
+    for model in order:
+        left = deadline - time.time()
+        if left < 4:
+            break
         parts = [{"text": text}] + [{"inline_data": {"mime_type": ct, "data": base64.b64encode(b).decode()}} for b, ct in imgs]
         body = json.dumps({"contents": [{"parts": parts}], "generationConfig": {"temperature": 0, "maxOutputTokens": 800, "responseMimeType": "application/json"}}).encode()
         req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GKEY}", data=body, headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=12) as r:
+            with urllib.request.urlopen(req, timeout=min(MODEL_TIMEOUT, left)) as r:
                 d = json.loads(r.read())
             out = "".join(p.get("text", "") for p in d["candidates"][0]["content"]["parts"])
             v = first_json(out); v["_model"] = model; return v
@@ -123,18 +149,22 @@ def gemini(text, imgs, reverse=False):
             last = f"{model}: HTTP {e.code} {e.read().decode()[:80]}"
         except Exception as e:
             last = f"{model}: {e}"
+            if "timed out" in str(e):
+                slow_until[model] = time.time() + 90
         log("gemini " + last)
     raise RuntimeError(last or "gemini failed")
 
 
-def openrouter(text, imgs):
+def openrouter(text, imgs, deadline):
     last = None
     for model in OR_MODELS:
+        if deadline - time.time() < 6:
+            break
         content = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": f"data:{ct};base64," + base64.b64encode(b).decode()}} for b, ct in imgs]
         body = json.dumps({"model": model, "temperature": 0, "max_tokens": 1500, "reasoning": {"effort": "low"}, "messages": [{"role": "user", "content": content}]}).encode()
         req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=body, headers={"Authorization": "Bearer " + ORKEY, "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with urllib.request.urlopen(req, timeout=max(5, deadline - time.time())) as r:
                 d = json.loads(r.read())
             if d.get("error"):
                 raise RuntimeError(str(d["error"].get("message"))[:80])
@@ -179,22 +209,26 @@ def judge(req):
     real = [x for x in imgs if len(x[0]) >= TINY]
     if imgs and not real:
         return {"error": f"no usable photos ({len(imgs)} tiny thumbnails, profile has no real pictures)"}  # never judge junk: a like from placeholders is worse than a pass
-    imgs = real
+    imgs = [shrink(b, ct) for b, ct in real]
     if not imgs:
         return {"error": "no photos could be fetched"}
+    deadline = t0 + BUDGET
+    kb = sum(len(b) for b, _ in imgs) // 1024
     try:
-        v = gemini(req["text"], imgs)
-        if empty_verdict(v):  # all zeros = the model saw nothing usable; one more try on the other model before giving up
-            log(f"empty verdict from {v.get('_model')} on {sum(len(b) for b, _ in imgs) // 1024}KB, retrying on the other model")
-            v2 = gemini(req["text"], imgs, reverse=True)
+        v = gemini(req["text"], imgs, deadline)
+        if empty_verdict(v) and deadline - time.time() > 8:  # all zeros = the model saw nothing usable; one more try on the other model
+            log(f"empty verdict from {v.get('_model')} on {kb}KB, retrying on the other model")
+            v2 = gemini(req["text"], imgs, deadline, reverse=True)
             if not empty_verdict(v2):
                 v = v2
-        v["_timing"] = f"fetch {t1 - t0:.1f}s ({sum(len(b) for b, _ in imgs) // 1024}KB) model {time.time() - t1:.1f}s"
+        v["_timing"] = f"fetch {t1 - t0:.1f}s ({kb}KB) model {time.time() - t1:.1f}s"
         return v
     except Exception as e:
+        if deadline - time.time() < 10:
+            return {"error": f"gemini too slow ({str(e)[:60]})"}
         log(f"gemini exhausted ({str(e)[:60]}), trying openrouter")
     try:
-        return openrouter(req["text"], imgs)
+        return openrouter(req["text"], imgs, deadline)
     except Exception as e:
         return {"error": f"all models failed: {str(e)[:80]}"}
 
