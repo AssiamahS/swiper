@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.3.1';
+  var VERSION = '1.3.2';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -619,6 +619,10 @@
       var rc = recsFor(p);
       if (rc && rc.photos.length) { p.photos = rc.photos.slice(0, 9); if (rc.text) p.bio = (p.bio + ' ' + rc.text).slice(0, 900); }
       if (!dec) dec = textDecision(p);
+      if (!dec && cfg.vision.enabled && !visionReady()) {
+        log('vision on but no key (Vision tab -> paste Gemini or OpenRouter key), holding 60s (no blind swipes)', 'warn');
+        return { d: 'wait', why: 'no vision key' };
+      }
       if (!dec && cfg.vision.enabled && visionReady() && p.photos.length) {
         setStatus('judging ' + (p.name || 'card') + '...');
         return judge(p).then(function (v) {
@@ -651,7 +655,7 @@
   }
   function start() {
     if (running) return;
-    if (cfg.vision.enabled && !visionReady()) log('vision on but no key for ' + cfg.vision.provider + ': ratio mode only', 'warn');
+    if (cfg.vision.enabled && !visionReady()) log('vision on but no key for ' + cfg.vision.provider + ': will HOLD, paste a key in the Vision tab', 'warn');
     running = true; sessionSwipes = 0; sinceBreak = 0; scheduleBreak(); lastCardKey = '';
     if (cfg.geo.enabled) { installGeo(); if (cfg.geo.pushToTinder) pushLocation(); }
     if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }).catch(function () {});
