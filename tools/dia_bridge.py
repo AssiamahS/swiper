@@ -12,7 +12,7 @@ import base64, json, os, re, subprocess, sys, time, urllib.request, urllib.error
 import websocket
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CDP = "http://127.0.0.1:9223"
+CDP = os.environ.get("SWIPER_CDP", "http://127.0.0.1:9223")
 GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 OR_MODELS = ["nex-agi/nex-n2.5-pro:free", "inclusionai/ling-3.0-flash-vl:free", "dots-studio/dots-3-note-preview:free"]
 

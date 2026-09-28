@@ -4,9 +4,9 @@
     python3 tools/dia_inject.py          # navigate the Tinder tab to /app/recs and inject
     python3 tools/dia_inject.py --status # just report tab url + whether swiper is loaded
 """
-import json, sys, time, urllib.request, websocket
+import json, os, sys, time, urllib.request, websocket
 
-CDP = "http://127.0.0.1:9223"
+CDP = os.environ.get("SWIPER_CDP", "http://127.0.0.1:9223")
 LOADER = "(function(){var u='https://raw.githubusercontent.com/AssiamahS/swiper/main/swiper.js?t='+Date.now();var x=new XMLHttpRequest();x.onreadystatechange=function(){if(x.readyState===4){if(x.status===200){try{(0,eval)(x.responseText);}catch(e){console.error('swiper',e)}}}};x.open('GET',u);x.send();})();"
 
 tabs = json.load(urllib.request.urlopen(CDP + "/json/list"))
