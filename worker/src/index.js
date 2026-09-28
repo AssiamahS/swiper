@@ -326,7 +326,14 @@ export default {
     const kb = Math.round(real.reduce((a, p) => a + p.bytes.length, 0) / 1024);
     const t1 = Date.now();
     const errs = [];
-    if (body.force === "llama" || body.force === "github" || body.force === "mistral" || body.force === "runner") {
+    if (body.force === "runner") {
+      try {
+        const v = await runnerJudge(env, body.text || "", imgs, urls, t0);
+        v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+        return json(v, 200, request);
+      } catch (e) { return json({ error: "forced runner | " + String(e.message || e).slice(0, 100) }, 200, request); }
+    }
+    if (body.force === "llama" || body.force === "github" || body.force === "mistral") {
       errs.push("forced " + body.force);
     } else {
       try {
@@ -337,15 +344,6 @@ export default {
         v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
         return json(v, 200, request);
       } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
-    }
-    if (body.force === "runner" || (body.force !== "llama" && body.force !== "github")) {
-      try {
-        const v = await runnerJudge(env, body.text || "", imgs, urls, t0);
-        v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
-        v._fallback = errs[0];
-        return json(v, 200, request);
-      } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
-      if (body.force === "runner") return json({ error: errs.join(" | ") }, 200, request);
     }
     if (body.force !== "llama" && body.force !== "github") {
       try {
@@ -377,6 +375,13 @@ export default {
       v._fallback = errs[0];
       return json(v, 200, request);
     } catch (e) { errs.push("openrouter: " + String(e.message || e).slice(0, 100)); }
+    // last resort: the GitHub-hosted CPU runner (slow, but no quota); only when a seat is connected
+    try {
+      const v = await runnerJudge(env, body.text || "", imgs, urls, t0);
+      v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+      v._fallback = errs[0];
+      return json(v, 200, request);
+    } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
     return json({ error: "all models failed: " + errs.join(" | "), kind: "brain_down" }, 200, request);
   },
 };
