@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.5.0';
+  var VERSION = '1.5.1';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -602,6 +602,22 @@
       }).catch(function (e) { log('geo push failed: ' + e.message, 'warn'); return false; });
   }
 
+  // taste log: batched, one KV write per 25 cards (Cloudflare free KV = 1,000 writes/day; per-card writes hit 50% by 18:30)
+  var LS_TASTE = 'swiper.tastebuf';
+  var tasteBuf = loadJSON(LS_TASTE, []);
+  var tasteFlushing = false;
+  function tasteAdd(e) { tasteBuf.push(e); saveJSON(LS_TASTE, tasteBuf); if (tasteBuf.length >= (cfg.vision.logBatch || 25)) tasteFlush(); }
+  function tasteFlush() {
+    if (tasteFlushing || !tasteBuf.length || !cfg.vision.workerKey) return Promise.resolve();
+    var batch = tasteBuf; tasteBuf = []; saveJSON(LS_TASTE, tasteBuf); tasteFlushing = true;
+    return fetch(cfg.vision.workerUrl.replace(/\/judge$/, '') + '/log', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Key': cfg.vision.workerKey }, body: JSON.stringify({ entries: batch }), keepalive: true })
+      .then(function (r) { if (!r.ok) throw new Error('log ' + r.status); })
+      .catch(function () { tasteBuf = batch.concat(tasteBuf).slice(-200); saveJSON(LS_TASTE, tasteBuf); })   // keep them for the next try, never more than 200
+      .then(function () { tasteFlushing = false; });
+  }
+  setInterval(tasteFlush, 10 * 60 * 1000);
+  window.addEventListener('pagehide', function () { tasteFlush(); });
+
   var sinceHop = 0;
   function routeHop() {
     var g = cfg.geo, r = g.route || [];
@@ -709,7 +725,7 @@
       var how = swipe(d.d); lastDecision = d.d; lastCardAt = Date.now();
       if (d.d === 'like') stats.likes++; else stats.nopes++;
       if (cfg.vision.provider === 'worker' && cfg.vision.workerKey && lastVerdict) {
-        try { fetch(cfg.vision.workerUrl.replace(/\/judge$/, '') + '/log', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Key': cfg.vision.workerKey }, body: JSON.stringify({ name: p.name, age: p.age, decision: d.d, why: d.why, verdict: lastVerdict, bio: (p.bio || '').slice(0, 200), t: Date.now() }), keepalive: true }).catch(function () {}); } catch (e) {}
+        tasteAdd({ name: p.name, age: p.age, decision: d.d, why: d.why, verdict: lastVerdict, bio: (p.bio || '').slice(0, 200), t: Date.now() });
         lastVerdict = null;
       }
       sessionSwipes++; sinceBreak++; saveStats(); renderStats();
@@ -726,7 +742,7 @@
     if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }).catch(function () {});
     log('started (speed ' + cfg.speed + ', like ratio ' + Math.round(cfg.likeRatio * 100) + '%)'); renderRun(); loop();
   }
-  function stop() { running = false; if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; } log('stopped'); renderRun(); }
+  function stop() { running = false; tasteFlush(); if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; } log('stopped'); renderRun(); }
 
   function probe() {
     var card = findCard(); var p = card ? parseCard(card) : null;

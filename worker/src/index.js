@@ -184,16 +184,25 @@ export default {
     if (request.method === "GET" && url.pathname === "/") return new Response(INSTALL_HTML, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     if (!env.JUDGE_KEY || request.headers.get("X-Key") !== env.JUDGE_KEY) return json({ error: "bad key" }, 401, request);
     if (url.pathname === "/log" && request.method === "POST") {
-      // taste dataset: verdict + decision only, never photos. key = time-sortable
+      // taste dataset: verdict + decision only, never photos. The page sends batches ({entries:[...]}) = ONE KV write per ~25 cards
+      // (free KV is 1,000 writes/day; per-card writes hit 50% in an afternoon). key = time-sortable
       let e; try { e = await request.json(); } catch { return json({ error: "bad json" }, 400, request); }
+      const ua = (request.headers.get("User-Agent") || "").slice(0, 60);
+      const entries = (Array.isArray(e.entries) ? e.entries : [e]).slice(0, 500).map((x) => ({ ...x, ua }));
+      if (!entries.length) return json({ ok: true, n: 0 }, 200, request);
       const key = `log:${new Date().toISOString()}:${Math.random().toString(36).slice(2, 7)}`;
-      await env.LOG.put(key, JSON.stringify({ ...e, ua: (request.headers.get("User-Agent") || "").slice(0, 60) }));
-      return json({ ok: true }, 200, request);
+      try { await env.LOG.put(key, JSON.stringify(entries)); }
+      catch (err) { return json({ ok: false, error: String(err).slice(0, 100) }, 503, request); }   // quota gone: the page keeps the batch and retries later
+      return json({ ok: true, n: entries.length }, 200, request);
     }
     if (url.pathname === "/log" && request.method === "GET") {
       const lim = Math.min(1000, +(url.searchParams.get("limit") || 200));
       const list = await env.LOG.list({ prefix: "log:", limit: lim, cursor: url.searchParams.get("cursor") || undefined });
-      const rows = await Promise.all(list.keys.map(async (k) => ({ key: k.name, ...(JSON.parse((await env.LOG.get(k.name)) || "{}")) })));
+      const rows = [];
+      for (const k of list.keys) {
+        const v = JSON.parse((await env.LOG.get(k.name)) || "null");
+        for (const [i, r] of (Array.isArray(v) ? v : [v]).entries()) if (r) rows.push({ key: k.name + (Array.isArray(v) ? ":" + i : ""), ...r });
+      }
       return json({ rows, cursor: list.list_complete ? null : list.cursor }, 200, request);
     }
     if (request.method !== "POST") return new Response("swiper-judge ok", { status: 200 });
