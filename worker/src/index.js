@@ -61,30 +61,44 @@ function b64(bytes) {
   return btoa(s);
 }
 
-const modelDownUntil = {};   // isolate-local, PER MODEL: a 503/429/timeout benches that one model for 60s, the others keep serving
+const modelDownUntil = {};   // isolate-local, PER MODEL: a 429 benches a model 60s, a 503 15s; the others keep serving
+const RACE = 3;              // models asked at the same time; the first clean verdict wins (503 spikes and slow models cost nothing)
+async function geminiOne(env, model, text, imgs, deadline) {
+  const left = deadline - Date.now();
+  if (left < 3000) throw new Error(`${model}: no time`);
+  const parts = [{ text }, ...imgs.map((im) => ({ inline_data: { mime_type: im.ct, data: im.b64 } }))];
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), Math.min(MODEL_TIMEOUT, left));
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_KEY}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl.signal,
+      body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 800, responseMimeType: "application/json" } }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      if (r.status === 429) modelDownUntil[model] = Date.now() + 60000; else if (r.status === 503) modelDownUntil[model] = Date.now() + 15000;
+      throw new Error(`${model}: HTTP ${r.status} ${(d.error && d.error.message || "").slice(0, 60)}`);
+    }
+    const out = (d.candidates[0].content.parts || []).map((p) => p.text || "").join("");
+    const v = firstJson(out);
+    if (emptyVerdict(v)) throw new Error(`${model}: empty verdict`);
+    v._model = model; return v;
+  } catch (e) {
+    if (/abort|timeout/i.test(String(e))) modelDownUntil[model] = Date.now() + 15000;
+    throw e instanceof Error ? e : new Error(`${model}: ${String(e).slice(0, 60)}`);
+  } finally { clearTimeout(t); }
+}
 async function gemini(env, text, imgs, deadline, reverse) {
-  let last = null; let tried = 0;
   const order = (reverse ? [...GEMINI_MODELS].reverse() : GEMINI_MODELS).filter((m) => Date.now() >= (modelDownUntil[m] || 0));
   if (!order.length) throw new Error("gemini: every model benched (503/429/timeouts), retry in " + Math.round((Math.min(...Object.values(modelDownUntil)) - Date.now()) / 1000) + "s");
-  for (const model of order) {
-    const left = deadline - Date.now();
-    if (left < 4000 || tried >= 4) break;
-    tried++;
-    const parts = [{ text }, ...imgs.map((im) => ({ inline_data: { mime_type: im.ct, data: im.b64 } }))];
-    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), Math.min(MODEL_TIMEOUT, left));
+  const errs = [];
+  for (let i = 0; i < order.length; i += RACE) {
+    if (deadline - Date.now() < 3000) break;
+    const batch = order.slice(i, i + RACE);
     try {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_KEY}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl.signal,
-        body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 800, responseMimeType: "application/json" } }),
-      });
-      const d = await r.json();
-      if (!r.ok) { last = `${model}: HTTP ${r.status} ${(d.error && d.error.message || "").slice(0, 60)}`; if (r.status === 503 || r.status === 429) modelDownUntil[model] = Date.now() + 60000; continue; }
-      const out = (d.candidates[0].content.parts || []).map((p) => p.text || "").join("");
-      const v = firstJson(out); v._model = model; return v;
-    } catch (e) { last = `${model}: ${String(e).slice(0, 60)}`; if (/abort|timeout/i.test(String(e))) modelDownUntil[model] = Date.now() + 60000; }
-    finally { clearTimeout(t); }
+      return await Promise.any(batch.map((m) => geminiOne(env, m, text, imgs, deadline)));
+    } catch (e) { for (const x of (e.errors || [e])) errs.push(String(x.message || x).slice(0, 70)); }
   }
-  throw new Error(last || "gemini failed");
+  throw new Error(errs[errs.length - 1] || "gemini failed");
 }
 
 const LLAMA_PROMPT = 'You rate dating profile photos. Look at the photo and reply with ONLY a JSON object, no other words. Keys and allowed values: ' +
