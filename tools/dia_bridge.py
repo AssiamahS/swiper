@@ -41,7 +41,11 @@ class Tab:
         self.n += 1
         self.ws.send(json.dumps({"id": self.n, "method": "Runtime.evaluate", "params": {"expression": expr, "returnByValue": True}}))
         while True:
-            m = json.loads(self.ws.recv())
+            raw = self.ws.recv()
+            try:
+                m = json.loads(raw)
+            except ValueError:
+                continue  # pymobiledevice3's CDP server sends the odd empty/non-JSON frame
             if m.get("id") == self.n:
                 return m.get("result", {}).get("result", {}).get("value")
 
