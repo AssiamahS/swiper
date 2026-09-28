@@ -198,11 +198,12 @@ export default {
     if (url.pathname === "/log" && request.method === "GET") {
       const lim = Math.min(1000, +(url.searchParams.get("limit") || 200));
       const list = await env.LOG.list({ prefix: "log:", limit: lim, cursor: url.searchParams.get("cursor") || undefined });
+      const vals = await Promise.all(list.keys.map((k) => env.LOG.get(k.name)));   // parallel: a sequential loop over hundreds of keys blew the request budget
       const rows = [];
-      for (const k of list.keys) {
-        const v = JSON.parse((await env.LOG.get(k.name)) || "null");
-        for (const [i, r] of (Array.isArray(v) ? v : [v]).entries()) if (r) rows.push({ key: k.name + (Array.isArray(v) ? ":" + i : ""), ...r });
-      }
+      list.keys.forEach((k, j) => {
+        const v = JSON.parse(vals[j] || "null");
+        (Array.isArray(v) ? v : [v]).forEach((r, i) => { if (r) rows.push({ key: k.name + (Array.isArray(v) ? ":" + i : ""), ...r }); });
+      });
       return json({ rows, cursor: list.list_complete ? null : list.cursor }, 200, request);
     }
     if (request.method !== "POST") return new Response("swiper-judge ok", { status: 200 });
