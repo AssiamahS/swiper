@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.4.3';
+  var VERSION = '1.5.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -69,7 +69,10 @@
     geo: {
       enabled: false, lat: 40.758, lng: -73.9855, accuracy: 25,
       wander: 0,              // meters, 0 = fixed pin
-      pushToTinder: true
+      pushToTinder: true,
+      route: [],              // [[lat, lng, name], ...] -> the pin snakes through these, one hop every routeEvery swipes
+      routeEvery: 30,
+      routeIdx: 0
     },
     msg: {
       enabled: false,
@@ -110,8 +113,21 @@
   if ((cfg.rulesVersion || 0) < 4) { if (cfg.vision.provider !== 'bridge') cfg.vision.provider = 'worker'; cfg.vision.workerUrl = DEFAULTS.vision.workerUrl; cfg.rulesVersion = 4; saveCfg(); }
   // rules v5 (2026-09-28): human pacing back — 370 full-speed swipes drained a passport pool in an afternoon and looked mechanical
   if ((cfg.rulesVersion || 0) < 5) { cfg.speed = 3; cfg.maxPerSession = 120; cfg.maxPerDay = 200; cfg.breakEvery = [14, 38]; cfg.breakLen = [20, 95]; cfg.sleepLen = [120, 240]; cfg.rulesVersion = 5; saveCfg(); }
+  // rules v7 (2026-09-28 evening): no daily cap, breaks max 20s, short naps; the pin snakes through Mexico (user: "keep moving throughout Mexico like a snake")
+  var MEXICO_ROUTE = [[32.5149, -117.0382, 'Tijuana'], [32.6245, -115.4523, 'Mexicali'], [29.0729, -110.9559, 'Hermosillo'], [31.6904, -106.4245, 'Ciudad Juarez'], [28.6353, -106.0889, 'Chihuahua'],
+    [25.5428, -103.4068, 'Torreon'], [25.6866, -100.3161, 'Monterrey'], [25.4383, -101.0000, 'Saltillo'], [22.1565, -100.9855, 'San Luis Potosi'], [22.7709, -102.5832, 'Zacatecas'],
+    [24.0277, -104.6532, 'Durango'], [24.8091, -107.3940, 'Culiacan'], [23.2494, -106.4111, 'Mazatlan'], [21.5041, -104.8942, 'Tepic'], [20.6597, -103.3496, 'Guadalajara'],
+    [21.8853, -102.2916, 'Aguascalientes'], [21.1250, -101.6860, 'Leon'], [20.5888, -100.3899, 'Queretaro'], [19.4326, -99.1332, 'Mexico City'], [19.2826, -99.6557, 'Toluca'],
+    [18.9242, -99.2216, 'Cuernavaca'], [19.0414, -98.2063, 'Puebla'], [19.1738, -96.1342, 'Veracruz'], [17.0732, -96.7266, 'Oaxaca'], [16.8531, -99.8237, 'Acapulco'],
+    [16.7528, -93.1152, 'Tuxtla Gutierrez'], [17.9895, -92.9475, 'Villahermosa'], [20.9674, -89.5926, 'Merida'], [21.1619, -86.8515, 'Cancun'], [20.2114, -87.4654, 'Tulum']];
   // rules v6 (2026-09-28): never a man — the fallback brains (mistral/llama) are looser on gender than gemini, so the bar is 8+ like instaFollowUp
   if ((cfg.rulesVersion || 0) < 6) { cfg.vision.minFeminine = Math.max(8, cfg.vision.minFeminine || 0); cfg.rulesVersion = 6; saveCfg(); }
+  if ((cfg.rulesVersion || 0) < 7) {
+    cfg.maxPerDay = 100000; cfg.breakLen = [8, 20]; cfg.sleepLen = [3, 6];
+    cfg.geo.enabled = true; cfg.geo.pushToTinder = true; cfg.geo.route = MEXICO_ROUTE; cfg.geo.routeEvery = 30; cfg.geo.routeIdx = 0; cfg.geo.wander = 800;
+    cfg.geo.lat = MEXICO_ROUTE[0][0]; cfg.geo.lng = MEXICO_ROUTE[0][1];
+    cfg.rulesVersion = 7; saveCfg();
+  }
 
   function today() { return new Date().toISOString().slice(0, 10); }
   var stats = loadJSON(LS_STATS, {});
@@ -586,6 +602,18 @@
       }).catch(function (e) { log('geo push failed: ' + e.message, 'warn'); return false; });
   }
 
+  var sinceHop = 0;
+  function routeHop() {
+    var g = cfg.geo, r = g.route || [];
+    if (!g.enabled || r.length < 2) return;
+    if (++sinceHop < (g.routeEvery || 30)) return;
+    sinceHop = 0; g.routeIdx = ((g.routeIdx || 0) + 1) % r.length;
+    var w = r[g.routeIdx];
+    g.lat = +(w[0] + (Math.random() - 0.5) * 0.03).toFixed(5); g.lng = +(w[1] + (Math.random() - 0.5) * 0.03).toFixed(5); saveCfg();
+    log('geo: hop ' + (g.routeIdx + 1) + '/' + r.length + ' -> ' + (w[2] || '') + ' ' + g.lat + ',' + g.lng, 'good');
+    if (g.pushToTinder) pushLocation();
+  }
+
   // ---------------------------------------------------------------- engine
   function withinHours() {
     if (!cfg.hours.enabled) return true;
@@ -685,6 +713,7 @@
         lastVerdict = null;
       }
       sessionSwipes++; sinceBreak++; saveStats(); renderStats();
+      routeHop();
       log((d.d === 'like' ? 'LIKE ' : 'NOPE ') + (p.name || '?') + ' (' + d.why + ', ' + how + ')', d.d === 'like' ? 'good' : '');
       return sleep(rnd(400, 1200));
     });
