@@ -62,20 +62,26 @@ function b64(bytes) {
 }
 
 const modelDownUntil = {};   // isolate-local, PER MODEL: a 429 benches a model 60s, a 503 15s; the others keep serving
-const RACE = 3;              // models asked at the same time; the first clean verdict wins (503 spikes and slow models cost nothing)
+const RACE = 2;              // models asked at the same time; the first clean verdict wins (503 spikes and slow models cost nothing)
+function geminiKeys(env) { return String(env.GEMINI_KEYS || env.GEMINI_KEY || "").split(",").map((k) => k.trim()).filter(Boolean); }
+let keyTurn = 0;
 async function geminiOne(env, model, text, imgs, deadline) {
   const left = deadline - Date.now();
   if (left < 3000) throw new Error(`${model}: no time`);
+  const keys = geminiKeys(env);
+  const key = keys[(keyTurn++) % keys.length];   // several AI Studio keys = several daily quotas; a 429 benches only this key+model pair
+  const bench = model + "|" + key.slice(-6);
   const parts = [{ text }, ...imgs.map((im) => ({ inline_data: { mime_type: im.ct, data: im.b64 } }))];
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), Math.min(MODEL_TIMEOUT, left));
   try {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_KEY}`, {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl.signal,
       body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 800, responseMimeType: "application/json" } }),
     });
     const d = await r.json();
     if (!r.ok) {
-      if (r.status === 429) modelDownUntil[model] = Date.now() + 60000; else if (r.status === 503) modelDownUntil[model] = Date.now() + 15000;
+      if (r.status === 429) modelDownUntil[bench] = Date.now() + (/daily|per day|PerDay/i.test(d.error && d.error.message || "") ? 3600000 : 60000);
+      else if (r.status === 503) modelDownUntil[bench] = Date.now() + 15000;
       throw new Error(`${model}: HTTP ${r.status} ${(d.error && d.error.message || "").slice(0, 60)}`);
     }
     const out = (d.candidates[0].content.parts || []).map((p) => p.text || "").join("");
@@ -83,13 +89,16 @@ async function geminiOne(env, model, text, imgs, deadline) {
     if (emptyVerdict(v)) throw new Error(`${model}: empty verdict`);
     v._model = model; return v;
   } catch (e) {
-    if (/abort|timeout/i.test(String(e))) modelDownUntil[model] = Date.now() + 15000;
+    if (/abort|timeout/i.test(String(e))) modelDownUntil[bench] = Date.now() + 15000;
     throw e instanceof Error ? e : new Error(`${model}: ${String(e).slice(0, 60)}`);
   } finally { clearTimeout(t); }
 }
 async function gemini(env, text, imgs, deadline, reverse) {
-  const order = (reverse ? [...GEMINI_MODELS].reverse() : GEMINI_MODELS).filter((m) => Date.now() >= (modelDownUntil[m] || 0));
-  if (!order.length) throw new Error("gemini: every model benched (503/429/timeouts), retry in " + Math.round((Math.min(...Object.values(modelDownUntil)) - Date.now()) / 1000) + "s");
+  const keys = geminiKeys(env);
+  if (!keys.length) throw new Error("gemini: no key");
+  const live = (m) => keys.some((k) => Date.now() >= (modelDownUntil[m + "|" + k.slice(-6)] || 0));
+  const order = (reverse ? [...GEMINI_MODELS].reverse() : GEMINI_MODELS).filter(live);
+  if (!order.length) throw new Error("gemini: every model+key benched (503/429/timeouts), retry in " + Math.round((Math.min(...Object.values(modelDownUntil)) - Date.now()) / 1000) + "s");
   const errs = [];
   for (let i = 0; i < order.length; i += RACE) {
     if (deadline - Date.now() < 3000) break;
@@ -165,6 +174,95 @@ async function githubModels(env, text, imgs, deadline) {
   } finally { clearTimeout(t); }
 }
 
+const OR_MODELS = ["google/gemma-4-26b-a4b-it:free", "qwen/qwen3.8-27b:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free", "dots-studio/dots-3-note-preview:free", "thinkingmachines/inkling:free"];
+const orDownUntil = {};
+async function openRouter(env, text, imgs, deadline) {
+  // fourth brain: OpenRouter free vision models (own daily quota per account); two at a time, first JSON wins
+  if (!env.OPENROUTER_KEY) throw new Error("openrouter: no key");
+  const content = [{ type: "text", text }, ...imgs.slice(0, 4).map((im) => ({ type: "image_url", image_url: { url: `data:${im.ct};base64,${im.b64}` } }))];
+  const one = async (model) => {
+    const left = deadline - Date.now();
+    if (left < 4000) throw new Error(`${model}: no time`);
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), Math.min(25000, left));
+    try {
+      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST", signal: ctl.signal,
+        headers: { "Authorization": "Bearer " + env.OPENROUTER_KEY, "Content-Type": "application/json", "HTTP-Referer": "https://swiper-judge.workers.dev", "X-Title": "swiper-judge" },
+        body: JSON.stringify({ model, temperature: 0, max_tokens: 1500, reasoning: { effort: "low" }, messages: [{ role: "user", content }] }),
+      });
+      const d = await r.json();
+      if (!r.ok || d.error) { if (r.status === 429) orDownUntil[model] = Date.now() + 600000; throw new Error(`${model}: ${r.status} ${String(d.error && d.error.message || "").slice(0, 60)}`); }
+      const msg = d.choices[0].message;
+      let c = msg.content || "";
+      if (!/\{[\s\S]*\}/.test(c) && msg.reasoning) c = msg.reasoning;
+      const v = firstJson(c);
+      if (emptyVerdict(v)) throw new Error(`${model}: empty verdict`);
+      v._model = "or/" + model.split("/")[1]; return v;
+    } finally { clearTimeout(t); }
+  };
+  const order = OR_MODELS.filter((m) => Date.now() >= (orDownUntil[m] || 0));
+  const errs = [];
+  for (let i = 0; i < order.length; i += 2) {
+    if (deadline - Date.now() < 4000) break;
+    try { return await Promise.any(order.slice(i, i + 2).map(one)); }
+    catch (e) { for (const x of (e.errors || [e])) errs.push(String(x.message || x).slice(0, 70)); }
+  }
+  throw new Error(errs[errs.length - 1] || "openrouter failed");
+}
+
+// ---------------------------------------------------------------- relay to the GitHub-hosted runner (open-weights vision model, no API key)
+export class Relay {
+  constructor(state, env) { this.state = state; this.env = env; this.pending = new Map(); this.seat = null; }
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/relay/ws") {
+      if (request.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 426 });
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      this.state.acceptWebSocket(server);
+      if (this.seat && this.seat !== server) { try { this.seat.close(1000, "replaced"); } catch {} }
+      this.seat = server;
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    if (url.pathname === "/relay/status") {
+      return Response.json({ seat: !!this.seat, pending: this.pending.size, sockets: this.state.getWebSockets().length });
+    }
+    if (url.pathname === "/relay/job") {
+      const seat = this.seat || this.state.getWebSockets()[0];
+      if (!seat) return Response.json({ error: "runner: no seat connected" });
+      const body = await request.json();
+      const id = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const waitMs = Math.max(1000, Math.min(60000, body.waitMs || 38000));
+      const verdict = await new Promise((resolve) => {
+        const t = setTimeout(() => { this.pending.delete(id); resolve({ error: "runner: no answer in " + Math.round(waitMs / 1000) + "s" }); }, waitMs);
+        this.pending.set(id, (v) => { clearTimeout(t); resolve(v); });
+        try { seat.send(JSON.stringify({ type: "job", id, text: body.text, urls: body.urls })); }
+        catch (e) { clearTimeout(t); this.pending.delete(id); resolve({ error: "runner: send failed " + String(e).slice(0, 60) }); }
+      });
+      return Response.json(verdict);
+    }
+    return new Response("relay", { status: 404 });
+  }
+  webSocketMessage(ws, msg) {
+    let m; try { m = JSON.parse(msg); } catch { return; }
+    if (m.type === "ping") { try { ws.send(JSON.stringify({ type: "pong" })); } catch {} return; }
+    if (m.type === "result" && this.pending.has(m.id)) this.pending.get(m.id)(m.verdict || { error: "runner: empty result" });
+  }
+  webSocketClose(ws) { if (this.seat === ws) this.seat = null; }
+  webSocketError(ws) { if (this.seat === ws) this.seat = null; }
+}
+async function runnerJudge(env, text, imgs, urls, deadline) {
+  if (!env.RELAY) throw new Error("runner: no relay binding");
+  const left = deadline - Date.now();
+  if (left < 6000) throw new Error("runner: no time");
+  const stub = env.RELAY.get(env.RELAY.idFromName("seat"));
+  const r = await stub.fetch("https://relay/relay/job", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, urls, waitMs: left - 2000 }) });
+  const v = await r.json();
+  if (v.error) throw new Error(v.error);
+  if (emptyVerdict(v)) throw new Error("runner: empty verdict");
+  return v;
+}
+
 const INSTALL_HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>swiper</title>
 <body style="font:17px -apple-system,system-ui;background:#111;color:#eee;padding:24px;max-width:520px;margin:auto">
 <h2>swiper</h2><p>1. <a style="color:#fd5068" href="/Swiper.shortcut">Add the Shortcut</a> (tap, then Add Shortcut).</p>
@@ -183,6 +281,9 @@ export default {
     }
     if (request.method === "GET" && url.pathname === "/") return new Response(INSTALL_HTML, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     if (!env.JUDGE_KEY || request.headers.get("X-Key") !== env.JUDGE_KEY) return json({ error: "bad key" }, 401, request);
+    if (url.pathname === "/relay/ws" || url.pathname === "/relay/status") {
+      return env.RELAY.get(env.RELAY.idFromName("seat")).fetch(request);
+    }
     if (url.pathname === "/log" && request.method === "POST") {
       // taste dataset: verdict + decision only, never photos. The page sends batches ({entries:[...]}) = ONE KV write per ~25 cards
       // (free KV is 1,000 writes/day; per-card writes hit 50% in an afternoon). key = time-sortable
@@ -220,7 +321,7 @@ export default {
     const kb = Math.round(real.reduce((a, p) => a + p.bytes.length, 0) / 1024);
     const t1 = Date.now();
     const errs = [];
-    if (body.force === "llama" || body.force === "github" || body.force === "mistral") {
+    if (body.force === "llama" || body.force === "github" || body.force === "mistral" || body.force === "runner") {
       errs.push("forced " + body.force);
     } else {
       try {
@@ -231,6 +332,15 @@ export default {
         v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
         return json(v, 200, request);
       } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
+    }
+    if (body.force === "runner" || (body.force !== "llama" && body.force !== "github")) {
+      try {
+        const v = await runnerJudge(env, body.text || "", imgs, urls, deadline);
+        v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+        v._fallback = errs[0];
+        return json(v, 200, request);
+      } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
+      if (body.force === "runner") return json({ error: errs.join(" | ") }, 200, request);
     }
     if (body.force !== "llama" && body.force !== "github") {
       try {
@@ -256,6 +366,12 @@ export default {
       v._fallback = errs[0];
       return json(v, 200, request);
     } catch (e) { errs.push("llama: " + String(e.message || e).slice(0, 100)); }
+    try {
+      const v = await openRouter(env, body.text || "", imgs, deadline);
+      v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+      v._fallback = errs[0];
+      return json(v, 200, request);
+    } catch (e) { errs.push("openrouter: " + String(e.message || e).slice(0, 100)); }
     return json({ error: "all models failed: " + errs.join(" | "), kind: "brain_down" }, 200, request);
   },
 };
