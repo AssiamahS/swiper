@@ -7,7 +7,7 @@ const TINY = 12 * 1024;          // below this a "photo" is a preview thumbnail,
 const MODEL_TIMEOUT = 20000;     // ms per model call
 const BUDGET = 40000;            // ms total, the page waits 45s
 const UID_RE = /\/u\/([^/]+)\//;
-const pick = (out) => typeof out === "string" ? out : (out.response ?? out.choices?.[0]?.message?.content ?? JSON.stringify(out));
+const pick = (out) => { if (typeof out === "string") return out; const r = out?.response ?? out?.choices?.[0]?.message?.content ?? out; return typeof r === "string" ? r : JSON.stringify(r); };
 
 function cors(request) {
   const o = request.headers.get("Origin") || "";
@@ -83,17 +83,27 @@ async function gemini(env, text, imgs, deadline, reverse) {
   throw new Error(last || "gemini failed");
 }
 
+const LLAMA_PROMPT = 'You rate dating profile photos. Look at the photo and reply with ONLY a JSON object, no other words. Keys and allowed values: ' +
+  'is_woman (true/false), feminine (integer 0-10, 10 = unmistakably a woman), body (one of "slim","athletic","average","curvy","plus"; plus = visibly heavy), body_confidence (0-1), ' +
+  'in_shape (true/false), full_body_visible (true if head to at least mid-thigh is visible), swimwear (true for bikini, swimsuit or lingerie), curves (0-10), glutes (0-10), bust (0-10), ' +
+  'face (0-10, how attractive the face is), sexy_vibe (0-10), photo_quality (0-10), grainy (true/false), group_photo (true/false), dyed_hair (true only for unnatural hair colors), ' +
+  'facial_piercings (true for septum, lip, eyebrow, bridge, cheek, or two or more face piercings; one nose stud = false), alt_style (true for emo, goth or punk styling), gym_selfie (true/false). ' +
+  'Rate what you actually see; do not guess middle values for everything.';
 async function llamaVision(env, text, imgs, deadline) {
   // single image per call on this model; judge up to 3 photos and merge (max scores, any-true flags, body from the fullest photo)
-  const outs = [];
-  for (const im of imgs.slice(0, 3)) {
-    if (deadline - Date.now() < 5000) break;
+  const outs = [], errs = [];
+  for (const im of imgs.slice(0, 4)) {           // this model refuses or zeroes some photos: skip those, keep going, merge what it rated
+    if (deadline - Date.now() < 5000 || outs.length >= 3) break;
     try {
-      const out = await env.AI.run(CF_MODEL, { messages: [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: `data:${im.ct};base64,${im.b64}` } }] }], max_tokens: 600, temperature: 0 });
-      outs.push(firstJson(pick(out)));
-    } catch (e) { if (!outs.length) throw e; break; }
+      const out = await env.AI.run(CF_MODEL, { messages: [{ role: "user", content: [{ type: "text", text: LLAMA_PROMPT }, { type: "image_url", image_url: { url: `data:${im.ct};base64,${im.b64}` } }] }], max_tokens: 400, temperature: 0 });
+      const raw = String(pick(out));
+      let v;
+      try { v = firstJson(raw); } catch { errs.push("no json: " + raw.slice(0, 60)); continue; }
+      if (emptyVerdict(v)) { errs.push("zeros"); continue; }
+      outs.push(v);
+    } catch (e) { errs.push(String(e).slice(0, 60)); }
   }
-  if (!outs.length) throw new Error("llama: no verdicts");
+  if (!outs.length) throw new Error("llama: " + (errs[0] || "no verdicts"));
   const v = { ...outs[0] };
   for (const o of outs.slice(1)) {
     for (const k of Object.keys(o)) {
@@ -102,7 +112,27 @@ async function llamaVision(env, text, imgs, deadline) {
     }
     if (o.full_body_visible && !outs[0].full_body_visible) v.body = o.body;
   }
-  v._model = "cf/llama-3.2-11b-vision"; return v;
+  v._model = "cf/llama-3.2-11b-vision"; v._v = 4; return v;
+}
+
+async function githubModels(env, text, imgs, deadline) {
+  // third brain: GitHub Models (free tier, own daily quota). GITHUB_TOKEN secret = a github token; openai/gpt-4o-mini takes several images
+  if (!env.GITHUB_TOKEN) throw new Error("no github token");
+  const left = deadline - Date.now();
+  if (left < 5000) throw new Error("no time");
+  const content = [{ type: "text", text }, ...imgs.slice(0, 6).map((im) => ({ type: "image_url", image_url: { url: `data:${im.ct};base64,${im.b64}`, detail: "low" } }))];
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), Math.min(MODEL_TIMEOUT, left));
+  try {
+    const r = await fetch("https://models.github.ai/inference/chat/completions", {
+      method: "POST", signal: ctl.signal,
+      headers: { "Authorization": "Bearer " + env.GITHUB_TOKEN, "Content-Type": "application/json", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "swiper-judge" },
+      body: JSON.stringify({ model: "openai/gpt-4o-mini", temperature: 0, max_tokens: 500, response_format: { type: "json_object" }, messages: [{ role: "user", content }] }),
+    });
+    const raw = await r.text();
+    if (!r.ok) throw new Error(`github: HTTP ${r.status} ${raw.slice(0, 80)}`);
+    const d = JSON.parse(raw);
+    const v = firstJson(d.choices[0].message.content); v._model = "github/gpt-4o-mini"; return v;
+  } finally { clearTimeout(t); }
 }
 
 export default {
@@ -123,14 +153,27 @@ export default {
     const kb = Math.round(real.reduce((a, p) => a + p.bytes.length, 0) / 1024);
     const t1 = Date.now();
     const errs = [];
-    try {
-      let v = await gemini(env, body.text || "", imgs, deadline, false);
-      if (emptyVerdict(v) && deadline - Date.now() > 8000) {
-        try { const v2 = await gemini(env, body.text || "", imgs, deadline, true); if (!emptyVerdict(v2)) v = v2; } catch {}
-      }
-      v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
-      return json(v, 200, request);
-    } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
+    if (body.force === "llama" || body.force === "github") {
+      errs.push("forced " + body.force);
+    } else {
+      try {
+        let v = await gemini(env, body.text || "", imgs, deadline, false);
+        if (emptyVerdict(v) && deadline - Date.now() > 8000) {
+          try { const v2 = await gemini(env, body.text || "", imgs, deadline, true); if (!emptyVerdict(v2)) v = v2; } catch {}
+        }
+        v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+        return json(v, 200, request);
+      } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
+    }
+    if (body.force !== "llama") {
+      try {
+        const v = await githubModels(env, body.text || "", imgs, deadline);
+        v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+        v._fallback = errs[0];
+        return json(v, 200, request);
+      } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
+      if (body.force === "github") return json({ error: errs.join(" | ") }, 200, request);
+    }
     try {
       const v = await llamaVision(env, body.text || "", imgs, deadline);
       v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
