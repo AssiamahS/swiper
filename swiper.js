@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.4.1';
+  var VERSION = '1.4.2';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -108,6 +108,8 @@
     cfg.rulesVersion = 3; saveCfg();
   }
   if ((cfg.rulesVersion || 0) < 4) { if (cfg.vision.provider !== 'bridge') cfg.vision.provider = 'worker'; cfg.vision.workerUrl = DEFAULTS.vision.workerUrl; cfg.rulesVersion = 4; saveCfg(); }
+  // rules v5 (2026-09-28): human pacing back — 370 full-speed swipes drained a passport pool in an afternoon and looked mechanical
+  if ((cfg.rulesVersion || 0) < 5) { cfg.speed = 3; cfg.maxPerSession = 120; cfg.maxPerDay = 200; cfg.breakEvery = [14, 38]; cfg.breakLen = [20, 95]; cfg.sleepLen = [120, 240]; cfg.rulesVersion = 5; saveCfg(); }
 
   function today() { return new Date().toISOString().slice(0, 10); }
   var stats = loadJSON(LS_STATS, {});
