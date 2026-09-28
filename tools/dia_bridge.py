@@ -148,6 +148,23 @@ def openrouter(text, imgs):
     raise RuntimeError(last or "openrouter failed")
 
 
+UID_RE = re.compile(r"/u/([^/]+)/")
+
+
+def own_photos(urls):
+    """The mobile card scrape can pick up other users' preview thumbnails; a profile's own photos all live
+    under one /u/<uid>/ folder, so keep the biggest folder group (ties keep everything, the size filter sorts it out)."""
+    groups = {}
+    for u in urls:
+        m = UID_RE.search(u)
+        groups.setdefault(m.group(1) if m else u, []).append(u)
+    best = max(groups.values(), key=len)
+    if len(best) > 1 and len(best) < len(urls):
+        log(f"dropping {len(urls) - len(best)} photo(s) from other profiles' folders")
+        return best
+    return urls
+
+
 def judge(req):
     from concurrent.futures import ThreadPoolExecutor
     t0 = time.time()
@@ -157,8 +174,12 @@ def judge(req):
         except Exception as e:
             log(f"photo fetch failed: {str(e)[:60]}"); return None
     with ThreadPoolExecutor(max_workers=9) as ex:
-        imgs = [x for x in ex.map(get, req["urls"][:9]) if x]
+        imgs = [x for x in ex.map(get, own_photos(req["urls"][:9])) if x]
     t1 = time.time()
+    real = [x for x in imgs if len(x[0]) >= TINY]
+    if imgs and not real:
+        return {"error": f"no usable photos ({len(imgs)} tiny thumbnails, profile has no real pictures)"}  # never judge junk: a like from placeholders is worse than a pass
+    imgs = real
     if not imgs:
         return {"error": "no photos could be fetched"}
     try:
