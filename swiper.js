@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.6.2';
+  var VERSION = '1.6.3';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -65,7 +65,7 @@
       maxRetries: 3,            // vision failures on one card before it is passed
       bridgeTimeout: 45,        // seconds to wait for tools/dia_bridge.py
       workerTimeout: 125,       // seconds to wait for the worker (gemini fast path, else the GitHub CPU runner at ~70s)
-      prefetch: 4,              // upcoming cards judged ahead of time (0 = off); one per GitHub seat
+      prefetch: 10,             // upcoming cards judged ahead of time (0 = off); 16 GitHub seats at ~100s each
       proxy: ''                 // desktop only: http://127.0.0.1:8802/img?u=  (tools/imgproxy.py) when the CDN blocks CORS
     },
     geo: {
@@ -124,7 +124,7 @@
     [16.7528, -93.1152, 'Tuxtla Gutierrez'], [17.9895, -92.9475, 'Villahermosa'], [20.9674, -89.5926, 'Merida'], [21.1619, -86.8515, 'Cancun'], [20.2114, -87.4654, 'Tulum']];
   // rules v6 (2026-09-28): never a man — the fallback brains (mistral/llama) are looser on gender than gemini, so the bar is 8+ like instaFollowUp
   if ((cfg.rulesVersion || 0) < 6) { cfg.vision.minFeminine = Math.max(8, cfg.vision.minFeminine || 0); cfg.rulesVersion = 6; saveCfg(); }
-  if ((cfg.rulesVersion || 0) < 8) { cfg.vision.prefetch = 4; if ((cfg.rulesVersion || 0) >= 7) { cfg.rulesVersion = 8; saveCfg(); } }
+  if ((cfg.rulesVersion || 0) < 9) { cfg.vision.prefetch = 10; if ((cfg.rulesVersion || 0) >= 7) { cfg.rulesVersion = 9; saveCfg(); } }
   if ((cfg.rulesVersion || 0) < 7) {
     cfg.maxPerDay = 100000; cfg.breakLen = [8, 20]; cfg.sleepLen = [3, 6];
     cfg.geo.enabled = true; cfg.geo.pushToTinder = true; cfg.geo.route = MEXICO_ROUTE; cfg.geo.routeEvery = 30; cfg.geo.routeIdx = 0; cfg.geo.wander = 800;

@@ -225,24 +225,27 @@ export class Relay {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.state.acceptWebSocket(server);
+      server.serializeAttachment({ seat: "?", at: Date.now() });
       this.seat = server;
       return new Response(null, { status: 101, webSocket: client });
     }
     if (url.pathname === "/relay/status") {
-      const seats = this.state.getWebSockets().map((w) => { const x = (this.stats && this.stats.get(w)) || { seat: "?" }; return { ...x, live: (x.at || 0) > Date.now() - 70000 }; });
+      const seats = this.state.getWebSockets().map((w) => { const x = w.deserializeAttachment() || { seat: "?" }; return { ...x, live: (x.at || 0) > Date.now() - 70000 }; });
       return Response.json({ seat: seats.length > 0, pending: this.pending.size, sockets: seats.length, seats });
     }
     if (url.pathname === "/relay/job") {
       // several runners can hold seats; hand the job to one that is not busy (least jobs in flight)
       this.busy = this.busy || new Map();
-      // only seats heard from in the last 70s (runners ping every 25s); sockets left by cancelled jobs linger and swallow jobs
-      const fresh = (w) => ((this.stats && this.stats.get(w)) || {}).at > Date.now() - 70000;
+      // only real seats (announced a model) heard from in the last 70s; round-robin by oldest dispatch, busy seats last.
+      // state lives on the socket attachment because this object hibernates between requests
+      const att = (w) => w.deserializeAttachment() || {};
+      const fresh = (w) => (att(w).at || 0) > Date.now() - 70000;
       for (const w of this.state.getWebSockets()) if (!fresh(w)) { try { w.close(1000, "stale"); } catch {} }
-      const seats = this.state.getWebSockets().filter(fresh);
+      const seats = this.state.getWebSockets().filter((w) => fresh(w) && att(w).model);
       if (!seats.length) return Response.json({ error: "runner: no live seat" });
-      const seat = seats.slice().sort((a, b) => (this.busy.get(a) || 0) - (this.busy.get(b) || 0))[0];
-      this.busy.set(seat, (this.busy.get(seat) || 0) + 1);
-      const done = () => this.busy.set(seat, Math.max(0, (this.busy.get(seat) || 1) - 1));
+      const seat = seats.slice().sort((a, b) => ((att(a).busy || 0) - (att(b).busy || 0)) || ((att(a).sent || 0) - (att(b).sent || 0)))[0];
+      seat.serializeAttachment({ ...att(seat), busy: (att(seat).busy || 0) + 1, sent: Date.now() });
+      const done = () => { const a = att(seat); try { seat.serializeAttachment({ ...a, busy: Math.max(0, (a.busy || 1) - 1) }); } catch {} };
       const body = await request.json();
       const id = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       const waitMs = Math.max(1000, Math.min(120000, body.waitMs || 38000));
@@ -258,9 +261,9 @@ export class Relay {
   }
   webSocketMessage(ws, msg) {
     let m; try { m = JSON.parse(msg); } catch { return; }
-    this.stats = this.stats || new Map();
-    const prev = this.stats.get(ws) || {};
-    this.stats.set(ws, { ...prev, ...(m.stats || {}), seat: m.seat || prev.seat, at: Date.now() });   // any message (hello, ping, result) = the seat is alive
+    // any message (hello, ping, result) = the seat is alive; kept ON the socket so it survives the object hibernating
+    const prev = ws.deserializeAttachment() || {};
+    ws.serializeAttachment({ ...prev, ...(m.stats || {}), seat: m.seat || prev.seat, at: Date.now() });
     if (m.type === "ping") { try { ws.send(JSON.stringify({ type: "pong" })); } catch {} return; }
     if (m.type === "result" && this.pending.has(m.id)) this.pending.get(m.id)(m.verdict || { error: "runner: empty result" });
   }
