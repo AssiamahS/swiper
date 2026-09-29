@@ -30,3 +30,4 @@
 - 2026-09-29 03:4x 105@ signed into Dia (authuser=1): its Default Gemini Project key + projects swiper-105a/b/c → 10 keys total in GEMINI_KEYS. finishkey.py takes AUTHUSER=<slot>.
 - 2026-09-29 pm@ signed into Dia (authuser=2) but AI Studio redirects it to /docs/available-regions = Google says the account is not eligible (usually unverified age); no keys possible there until that clears.
 - 2026-09-29 04:1x pm@ age-verified → AI Studio works (authuser=2) → projects swiper-pm-a..d. 14 keys in GEMINI_KEYS (hcp 6, 105 4, pm 4). Probe at 04:15: 8/14 = 200, 6 = 503 "high demand" (Google overload on that model, not quota; more keys do not help a 503, other models do).
+- 2026-09-29 04:58 Google suspended project swiper-105b (gen-lang-client-0056455166) for ToS violations = the multi-project key pool is quota circumvention. GEMINI_KEYS cut back to the single original hcp key. Do not rebuild the pool. tools/gemini_keys is kept only as history.
