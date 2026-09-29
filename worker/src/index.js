@@ -117,7 +117,12 @@ const LLAMA_PROMPT = 'You rate dating profile photos. Look at the photo and repl
   'facial_piercings (true for septum, lip, eyebrow, bridge, cheek, or two or more face piercings; one nose stud = false), alt_style (true for emo, goth or punk styling), gym_selfie (true/false). ' +
   'Rate what you actually see; do not guess middle values for everything.';
 const MISTRAL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
+let aiDownUntil = 0;   // Workers AI free neurons are per day (00:00 UTC); once 4006 says they are gone, stop asking until then
+function aiQuotaGone(e) {
+  if (/4006|daily free allocation|neurons/i.test(String(e))) { const d = new Date(); aiDownUntil = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); }
+}
 async function mistralVision(env, text, imgs, deadline) {
+  if (Date.now() < aiDownUntil) throw new Error("workers ai: out of neurons until 00:00 UTC");
   // second brain: Mistral Small 3.1 on Workers AI, takes several images in one call, same full prompt as Gemini
   const left = deadline - Date.now();
   if (left < 6000) throw new Error("no time");
@@ -224,7 +229,8 @@ export class Relay {
       return new Response(null, { status: 101, webSocket: client });
     }
     if (url.pathname === "/relay/status") {
-      return Response.json({ seat: this.state.getWebSockets().length > 0, pending: this.pending.size, sockets: this.state.getWebSockets().length });
+      const seats = this.state.getWebSockets().map((w) => (this.stats && this.stats.get(w)) || { seat: "?" });
+      return Response.json({ seat: seats.length > 0, pending: this.pending.size, sockets: seats.length, seats });
     }
     if (url.pathname === "/relay/job") {
       // several runners can hold seats; hand the job to one that is not busy (least jobs in flight)
@@ -249,6 +255,7 @@ export class Relay {
   }
   webSocketMessage(ws, msg) {
     let m; try { m = JSON.parse(msg); } catch { return; }
+    if (m.stats) { this.stats = this.stats || new Map(); this.stats.set(ws, { ...m.stats, seat: m.seat || (this.stats.get(ws) || {}).seat, at: Date.now() }); }
     if (m.type === "ping") { try { ws.send(JSON.stringify({ type: "pong" })); } catch {} return; }
     if (m.type === "result" && this.pending.has(m.id)) this.pending.get(m.id)(m.verdict || { error: "runner: empty result" });
   }
@@ -351,7 +358,7 @@ export default {
         v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
         v._fallback = errs[0];
         return json(v, 200, request);
-      } catch (e) { errs.push("mistral: " + String(e.message || e).slice(0, 100)); }
+      } catch (e) { aiQuotaGone(e); errs.push("mistral: " + String(e.message || e).slice(0, 100)); }
       if (body.force === "mistral") return json({ error: errs.join(" | ") }, 200, request);
     }
     if (body.force === "github") {
@@ -363,20 +370,20 @@ export default {
       } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
       if (body.force === "github") return json({ error: errs.join(" | ") }, 200, request);
     }
-    try {
+    if (Date.now() >= aiDownUntil) try {
       const v = await llamaVision(env, body.text || "", imgs, deadline);
       v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
       v._fallback = errs[0];
       return json(v, 200, request);
-    } catch (e) { errs.push("llama: " + String(e.message || e).slice(0, 100)); }
+    } catch (e) { aiQuotaGone(e); errs.push("llama: " + String(e.message || e).slice(0, 100)); }
     try {
       const v = await openRouter(env, body.text || "", imgs, deadline);
       v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
       v._fallback = errs[0];
       return json(v, 200, request);
     } catch (e) { errs.push("openrouter: " + String(e.message || e).slice(0, 100)); }
-    // last resort: the GitHub-hosted CPU runner (slow, but no quota); only when a seat is connected
-    try {
+    // last resort: the GitHub-hosted CPU runner (60-120s, no quota) — prefetch only; an on-screen card must not wait two minutes for it
+    if (body.prefetch) try {
       const v = await runnerJudge(env, body.text || "", imgs, urls, t0);
       v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
       v._fallback = errs[0];

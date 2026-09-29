@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.6.0';
+  var VERSION = '1.6.1';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -335,7 +335,7 @@
     if (textDecision(prof)) return false;   // a text rule will decide this card, no vision needed
     prefetchInFlight++;
     var entry = verdictCache[k] = { at: Date.now() };
-    entry.promise = judge(prof).then(function (v) { entry.v = v; return v; }, function (e) { delete verdictCache[k]; throw e; })
+    entry.promise = judge(prof, { prefetch: true }).then(function (v) { entry.v = v; return v; }, function (e) { delete verdictCache[k]; throw e; })
       .then(function (v) { prefetchInFlight--; prefetchTick(); return v; }, function (e) { prefetchInFlight--; prefetchTick(); throw e; });
     entry.promise.catch(function () {});
     return true;
@@ -454,22 +454,25 @@
       setTimeout(function () { if (bridge.waiting[id]) { delete bridge.waiting[id]; rej(new Error('bridge helper not answering (is tools/dia_bridge.py running?)')); } }, (cfg.vision.bridgeTimeout || 45) * 1000);
     });
   }
-  function workerJudge(text, urls) {
+  function workerJudge(text, urls, opts) {
+    opts = opts || {};
+    // on-screen card: 45s max (the worker skips the slow CPU runner); prefetch: the long window, the runner is allowed
+    var limit = opts.prefetch ? (cfg.vision.workerTimeout || 125) : 45;
     var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    var to = setTimeout(function () { if (ctl) ctl.abort(); }, (cfg.vision.workerTimeout || 95) * 1000);   // the worker may hand the card to the CPU runner (30-70s)
-    return fetch(cfg.vision.workerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Key': cfg.vision.workerKey }, body: JSON.stringify({ text: text, urls: urls }), signal: ctl ? ctl.signal : undefined })
+    var to = setTimeout(function () { if (ctl) ctl.abort(); }, limit * 1000);
+    return fetch(cfg.vision.workerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Key': cfg.vision.workerKey }, body: JSON.stringify({ text: text, urls: urls, prefetch: !!opts.prefetch }), signal: ctl ? ctl.signal : undefined })
       .then(function (r) { if (r.status === 401) throw new Error('worker: bad key'); return r.json(); })
       .then(function (v) {
         if (v && v.error) { var err = new Error(v.error); err.brainDown = v.kind === 'brain_down'; throw err; }
         return v;
-      }).catch(function (e) { if (e && e.name === 'AbortError') throw new Error('worker not answering in ' + (cfg.vision.workerTimeout || 95) + 's'); throw e; })
+      }).catch(function (e) { if (e && e.name === 'AbortError') throw new Error('worker not answering in ' + limit + 's'); throw e; })
       .then(function (v) { clearTimeout(to); return v; }, function (e) { clearTimeout(to); throw e; });
   }
-  function judge(profile) {
+  function judge(profile, opts) {
     var urls = profile.photos.slice(0, cfg.vision.maxPhotos);
     if (!urls.length) return Promise.reject(new Error('no photos'));
     if (cfg.vision.provider === 'worker') {
-      return workerJudge(PROMPT + (profile.bio ? '\nProfile text: ' + profile.bio.slice(0, 300) : ''), urls).then(function (v) {
+      return workerJudge(PROMPT + (profile.bio ? '\nProfile text: ' + profile.bio.slice(0, 300) : ''), urls, opts).then(function (v) {
         if (!Number(v.face) && !Number(v.feminine) && !Number(v.photo_quality) && !Number(v.curves)) throw new Error('empty verdict from ' + v._model);
         return v;
       });
