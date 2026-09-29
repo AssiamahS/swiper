@@ -229,14 +229,17 @@ export class Relay {
       return new Response(null, { status: 101, webSocket: client });
     }
     if (url.pathname === "/relay/status") {
-      const seats = this.state.getWebSockets().map((w) => (this.stats && this.stats.get(w)) || { seat: "?" });
+      const seats = this.state.getWebSockets().map((w) => { const x = (this.stats && this.stats.get(w)) || { seat: "?" }; return { ...x, live: (x.at || 0) > Date.now() - 70000 }; });
       return Response.json({ seat: seats.length > 0, pending: this.pending.size, sockets: seats.length, seats });
     }
     if (url.pathname === "/relay/job") {
       // several runners can hold seats; hand the job to one that is not busy (least jobs in flight)
       this.busy = this.busy || new Map();
-      const seats = this.state.getWebSockets();
-      if (!seats.length) return Response.json({ error: "runner: no seat connected" });
+      // only seats heard from in the last 70s (runners ping every 25s); sockets left by cancelled jobs linger and swallow jobs
+      const fresh = (w) => ((this.stats && this.stats.get(w)) || {}).at > Date.now() - 70000;
+      for (const w of this.state.getWebSockets()) if (!fresh(w)) { try { w.close(1000, "stale"); } catch {} }
+      const seats = this.state.getWebSockets().filter(fresh);
+      if (!seats.length) return Response.json({ error: "runner: no live seat" });
       const seat = seats.slice().sort((a, b) => (this.busy.get(a) || 0) - (this.busy.get(b) || 0))[0];
       this.busy.set(seat, (this.busy.get(seat) || 0) + 1);
       const done = () => this.busy.set(seat, Math.max(0, (this.busy.get(seat) || 1) - 1));
@@ -255,7 +258,9 @@ export class Relay {
   }
   webSocketMessage(ws, msg) {
     let m; try { m = JSON.parse(msg); } catch { return; }
-    if (m.stats) { this.stats = this.stats || new Map(); this.stats.set(ws, { ...m.stats, seat: m.seat || (this.stats.get(ws) || {}).seat, at: Date.now() }); }
+    this.stats = this.stats || new Map();
+    const prev = this.stats.get(ws) || {};
+    this.stats.set(ws, { ...prev, ...(m.stats || {}), seat: m.seat || prev.seat, at: Date.now() });   // any message (hello, ping, result) = the seat is alive
     if (m.type === "ping") { try { ws.send(JSON.stringify({ type: "pong" })); } catch {} return; }
     if (m.type === "result" && this.pending.has(m.id)) this.pending.get(m.id)(m.verdict || { error: "runner: empty result" });
   }
