@@ -229,6 +229,16 @@ export class Relay {
       this.seat = server;
       return new Response(null, { status: 101, webSocket: client });
     }
+    if (url.pathname === "/beat") {        // every judge call: when the page last asked, and when a brain last answered
+      const b = await request.json().catch(() => ({}));
+      const cur = (await this.state.storage.get("beat")) || {};
+      const now = Date.now();
+      const next = { ...cur, lastAt: now };
+      if (b.ok) next.lastOkAt = now; else { next.lastErrAt = now; next.lastErr = String(b.err || "").slice(0, 160); }
+      await this.state.storage.put("beat", next);
+      return Response.json(next);
+    }
+    if (url.pathname === "/health") return Response.json((await this.state.storage.get("beat")) || {});
     if (url.pathname === "/relay/status") {
       const seats = this.state.getWebSockets().map((w) => { const x = w.deserializeAttachment() || { seat: "?" }; return { ...x, live: (x.at || 0) > Date.now() - 70000 }; });
       return Response.json({ seat: seats.length > 0, pending: this.pending.size, sockets: seats.length, seats });
@@ -288,7 +298,7 @@ const INSTALL_HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport"
 <h2>swiper</h2><p>1. <a style="color:#fd5068" href="/Swiper.shortcut">Add the Shortcut</a> (tap, then Add Shortcut).</p>
 <p>2. In Safari open <b>tinder.com</b>, tap Share, run <b>Swiper</b>.</p><p>3. Panel &rarr; Vision tab &rarr; paste the worker key once. Start.</p></body>`;
 
-export default {
+const app = {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request) });
@@ -398,5 +408,60 @@ export default {
       return json(v, 200, request);
     } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
     return json({ error: "all models failed: " + errs.join(" | "), kind: "brain_down" }, 200, request);
+  },
+};
+
+
+const OPENER_MODELS = ["gemini-3.1-flash-lite-preview", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-flash-lite-latest"];
+async function opener(env, name, bio) {
+  // first message for a new match, written from her profile; same key pool as the judge
+  const keys = geminiKeys(env);
+  if (!keys.length) throw new Error("no key");
+  const prompt = "Write ONE short, casual, confident first message for a dating app match. Max 110 characters. No emojis unless natural, no hashtags, no em dashes, no quotes. " +
+    "Reference something specific from her profile if there is anything, otherwise keep it light and playful. If her profile is in Spanish, write in Spanish. Output the message only.\n" +
+    "Her name: " + (name || "unknown") + "\nProfile text: " + (bio || "(none)");
+  let last = "";
+  for (let i = 0; i < 8; i++) {
+    const key = keys[(keyTurn++) % keys.length], model = OPENER_MODELS[i % OPENER_MODELS.length];
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.9, maxOutputTokens: 80 } }),
+      });
+      const d = await r.json();
+      if (!r.ok) { last = `${model}: HTTP ${r.status}`; continue; }
+      const t = (d.candidates[0].content.parts || []).map((p) => p.text || "").join("").replace(/^["'\s]+|["'\s]+$/g, "").split("\n")[0];
+      if (t) return { text: t.slice(0, 160), model };
+    } catch (e) { last = String(e).slice(0, 80); }
+  }
+  throw new Error(last || "opener failed");
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const authed = env.JUDGE_KEY && request.headers.get("X-Key") === env.JUDGE_KEY;
+    const relay = () => env.RELAY.get(env.RELAY.idFromName("seat"));
+    if (url.pathname === "/health" && request.method === "GET") {
+      if (!authed) return json({ error: "bad key" }, 401, request);
+      const h = await (await relay().fetch("https://relay/health")).json();
+      return json({ ...h, now: Date.now() }, 200, request);
+    }
+    if (url.pathname === "/opener" && request.method === "POST") {
+      if (!authed) return json({ error: "bad key" }, 401, request);
+      const b = await request.json().catch(() => ({}));
+      try { return json(await opener(env, b.name, b.bio), 200, request); }
+      catch (e) { return json({ error: String(e.message || e) }, 200, request); }
+    }
+    const res = await app.fetch(request, env);
+    const isJudge = request.method === "POST" && authed && url.pathname !== "/log" && !url.pathname.startsWith("/relay");
+    if (isJudge && env.RELAY) {
+      ctx.waitUntil((async () => {
+        let ok = false, err = "";
+        try { const d = await res.clone().json(); ok = !d.error; err = d.error || ""; } catch {}
+        await relay().fetch("https://relay/beat", { method: "POST", body: JSON.stringify({ ok, err }) });
+      })());
+    }
+    return res;
   },
 };

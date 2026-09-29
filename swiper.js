@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.6.3';
+  var VERSION = '1.6.4';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -131,6 +131,9 @@
     cfg.geo.lat = MEXICO_ROUTE[0][0]; cfg.geo.lng = MEXICO_ROUTE[0][1];
     cfg.rulesVersion = 7; saveCfg();
   }
+
+  // 2026-09-29: user wants an AI opener on every match
+  if (!cfg.msgDefaultsV1) { cfg.msg.enabled = true; cfg.msg.ai = true; cfg.msgDefaultsV1 = true; saveCfg(); }
 
   function today() { return new Date().toISOString().slice(0, 10); }
   var stats = loadJSON(LS_STATS, {});
@@ -564,6 +567,10 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
   function aiOpener(profile) {
+    if (cfg.vision.provider === 'worker' && cfg.vision.workerKey) {   // the worker writes it with the gemini key pool
+      return fetch(cfg.vision.workerUrl.replace(/\/judge$/, '') + '/opener', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Key': cfg.vision.workerKey }, body: JSON.stringify({ name: profile.name, bio: profile.bio }) })
+        .then(function (r) { return r.json(); }).then(function (d) { if (!d.text) throw new Error(d.error || 'no opener'); return d.text; });
+    }
     var sys = 'Write ONE short, casual, confident first message for a dating app match. Max 110 characters. No emojis unless natural, no hashtags, no em dashes, no quotes. Reference something specific from her profile if there is anything, otherwise keep it light and playful. Output the message only.';
     return llm([{ role: 'system', content: sys }, { role: 'user', content: 'Her name: ' + (profile.name || 'unknown') + '\nProfile text: ' + (profile.bio || '(none)') }],
       { maxTokens: 80, timeout: 20000 }).then(function (r) { return r.text.replace(/^["'\s]+|["'\s]+$/g, '').split('\n')[0]; });
@@ -575,7 +582,7 @@
     stats.matches++; saveStats(); renderStats();
     log('MATCH' + (lastProfile && lastProfile.name ? ' with ' + lastProfile.name : ''), 'good');
     if (!cfg.msg.enabled) { closeModal(modal); return sleep(1500); }
-    var textP = (cfg.msg.ai && cfg.vision.key) ? aiOpener(lastProfile || {}).catch(function () { return cfg.msg.text; }) : Promise.resolve(cfg.msg.text);
+    var textP = (cfg.msg.ai && (cfg.vision.key || (cfg.vision.provider === 'worker' && cfg.vision.workerKey))) ? aiOpener(lastProfile || {}).catch(function () { return cfg.msg.text; }) : Promise.resolve(cfg.msg.text);
     return sleep(rnd(cfg.msg.delay[0], cfg.msg.delay[1]) * 1000).then(function () { return textP; }).then(function (text) {
       var box = modal.querySelector('textarea, input[type="text"], input:not([type])');
       if (!box || !text) { log('no message box in match modal', 'warn'); closeModal(modal); return; }
