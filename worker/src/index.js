@@ -62,7 +62,7 @@ function b64(bytes) {
 }
 
 const modelDownUntil = {};   // isolate-local, PER MODEL: a 429 benches a model 60s, a 503 15s; the others keep serving
-const RACE = 2;              // models asked at the same time; the first clean verdict wins (503 spikes and slow models cost nothing)
+const RACE = 1;              // one model at a time: racing 2-3 burned the free daily quota 2-3x faster (all 8 models 429 by 23:27 EDT on 2026-09-28)
 function geminiKeys(env) { return String(env.GEMINI_KEYS || env.GEMINI_KEY || "").split(",").map((k) => k.trim()).filter(Boolean); }
 let keyTurn = 0;
 async function geminiOne(env, model, text, imgs, deadline) {
