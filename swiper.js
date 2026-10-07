@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.6.4';
+  var VERSION = '1.6.5';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
 
@@ -736,7 +736,7 @@
       if (rc && rc.photos.length) { p.photos = rc.photos.slice(0, 9); if (rc.text) p.bio = (p.bio + ' ' + rc.text).slice(0, 900); }
       if (!dec) dec = textDecision(p);
       if (!dec && cfg.vision.enabled && !visionReady()) {
-        log('vision on but no key (Vision tab -> paste Gemini or OpenRouter key), holding 60s (no blind swipes)', 'warn');
+        log('vision on but no key: Vision tab -> ' + (cfg.vision.provider === 'worker' ? 'paste the Worker key (swiper-judge)' : 'paste a ' + cfg.vision.provider + ' key') + ', holding 60s (no blind swipes)', 'warn');
         return { d: 'wait', why: 'no vision key' };
       }
       if (!dec && cfg.vision.enabled && visionReady() && p.photos.length) {
