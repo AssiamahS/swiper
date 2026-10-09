@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.6.7';
+  var VERSION = '1.6.8';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -158,7 +158,22 @@
     logBuf.push({ t: line, c: cls || '' }); if (logBuf.length > 200) logBuf.shift();
     try { console.log('[swiper] ' + msg); } catch (e) {}
     renderLog(); setStatus(msg);
+    liveAdd({ ts: Date.now(), k: 'log', m: msg + (cls ? ' [' + cls + ']' : '') });
   }
+  // live feed to the worker (/live): every log line + every decision with its reason, read on the Mac with tools/swiperlog.py
+  var liveBuf = [], liveBusy = false;
+  function liveAdd(row) { if (!liveBuf) liveBuf = []; liveBuf.push(row); if (liveBuf.length > 400) liveBuf.splice(0, liveBuf.length - 400); if (liveBuf.length >= 40) liveFlush(); }
+  function liveFlush() {
+    if (liveBusy || !liveBuf.length || !cfg.vision.workerKey || !cfg.vision.workerUrl) return;
+    var batch = liveBuf; liveBuf = []; liveBusy = true;
+    fetch(cfg.vision.workerUrl.replace(/\/judge$/, '') + '/live', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Key': cfg.vision.workerKey },
+      body: JSON.stringify({ v: VERSION, dev: (navigator.userAgent.match(/iPhone|iPad|Mac|Android/) || ['?'])[0], lines: batch }), keepalive: true })
+      .then(function (r) { if (!r.ok) throw new Error('live ' + r.status); })
+      .catch(function () { liveBuf = batch.concat(liveBuf).slice(-400); })
+      .then(function () { liveBusy = false; });
+  }
+  setInterval(liveFlush, 15000);
+  window.addEventListener('pagehide', liveFlush);
   var SPEED = { 1: [700, 1600], 2: [1500, 3200], 3: [2500, 6500], 4: [5000, 12000], 5: [10000, 26000] };
   function swipeDelay() { var r = SPEED[cfg.speed] || SPEED[3]; return skew(r[0], r[1]); }
 
@@ -778,6 +793,7 @@
       if (!d) return;
       var how = swipe(d.d); lastDecision = d.d; lastCardAt = Date.now();
       if (d.d === 'like') stats.likes++; else stats.nopes++;
+      liveAdd({ ts: Date.now(), k: d.d === 'like' ? 'like' : 'nope', m: (p.name || '?') + (p.age ? ' ' + p.age : '') + ': ' + d.d + ' (' + (d.why || '') + ')', d: { name: p.name, age: p.age, why: d.why, verdict: lastVerdict, bio: (p.bio || '').slice(0, 200), photos: (p.photos || []).length } });
       if (cfg.vision.provider === 'worker' && cfg.vision.workerKey && lastVerdict) {
         tasteAdd({ name: p.name, age: p.age, decision: d.d, why: d.why, verdict: lastVerdict, bio: (p.bio || '').slice(0, 200), t: Date.now() });
         lastVerdict = null;

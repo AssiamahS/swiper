@@ -240,6 +240,25 @@ export class Relay {
       return Response.json(next);
     }
     if (url.pathname === "/health") return Response.json((await this.state.storage.get("beat")) || {});
+    if (url.pathname === "/live") {           // live feed: every panel log line + every like/nope with its reason, so the Mac can read what the phone is doing
+      const sql = this.state.storage.sql;
+      sql.exec("CREATE TABLE IF NOT EXISTS live (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, dev TEXT, v TEXT, kind TEXT, msg TEXT, data TEXT)");
+      if (request.method === "POST") {
+        const b = await request.json().catch(() => ({}));
+        const rows = (Array.isArray(b.lines) ? b.lines : []).slice(0, 300);
+        for (const r of rows) sql.exec("INSERT INTO live (ts, dev, v, kind, msg, data) VALUES (?, ?, ?, ?, ?, ?)",
+          +r.ts || Date.now(), String(b.dev || "").slice(0, 40), String(b.v || "").slice(0, 12), String(r.k || "log").slice(0, 12),
+          String(r.m || "").slice(0, 400), r.d ? JSON.stringify(r.d).slice(0, 2000) : null);
+        sql.exec("DELETE FROM live WHERE id <= (SELECT MAX(id) FROM live) - 20000");   // keep the last 20k rows
+        return Response.json({ ok: true, n: rows.length });
+      }
+      const since = +(url.searchParams.get("since") || 0), lim = Math.min(2000, +(url.searchParams.get("limit") || 200));
+      const kind = url.searchParams.get("kind");
+      const q = kind ? sql.exec("SELECT * FROM live WHERE id > ? AND kind = ? ORDER BY id DESC LIMIT ?", since, kind, lim)
+                     : sql.exec("SELECT * FROM live WHERE id > ? ORDER BY id DESC LIMIT ?", since, lim);
+      const rows = q.toArray().reverse().map((r) => ({ ...r, data: r.data ? JSON.parse(r.data) : null }));
+      return Response.json({ rows });
+    }
     if (url.pathname === "/relay/status") {
       const seats = this.state.getWebSockets().map((w) => { const x = w.deserializeAttachment() || { seat: "?" }; return { ...x, live: (x.at || 0) > Date.now() - 70000 }; });
       return Response.json({ seat: seats.length > 0, pending: this.pending.size, sockets: seats.length, seats });
@@ -322,6 +341,10 @@ const app = {
     if (!env.JUDGE_KEY || request.headers.get("X-Key") !== env.JUDGE_KEY) return json({ error: "bad key" }, 401, request);
     if (url.pathname === "/relay/ws" || url.pathname === "/relay/status") {
       return env.RELAY.get(env.RELAY.idFromName("seat")).fetch(request);
+    }
+    if (url.pathname === "/live") {   // its own object, away from the runner seats' websockets
+      const r = await env.RELAY.get(env.RELAY.idFromName("live")).fetch(request);
+      return new Response(r.body, { status: r.status, headers: { "Content-Type": "application/json", ...cors(request) } });
     }
     if (url.pathname === "/log" && request.method === "POST") {
       // taste dataset: verdict + decision only, never photos. The page sends batches ({entries:[...]}) = ONE KV write per ~25 cards
@@ -463,7 +486,7 @@ export default {
       catch (e) { return json({ error: String(e.message || e) }, 200, request); }
     }
     const res = await app.fetch(request, env);
-    const isJudge = request.method === "POST" && authed && url.pathname !== "/log" && !url.pathname.startsWith("/relay");
+    const isJudge = request.method === "POST" && authed && url.pathname !== "/log" && url.pathname !== "/live" && !url.pathname.startsWith("/relay");
     if (isJudge && env.RELAY) {
       ctx.waitUntil((async () => {
         let ok = false, err = "";
