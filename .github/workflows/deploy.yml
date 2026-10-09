@@ -1,0 +1,24 @@
+name: deploy swiper-judge
+# push to main = the worker + the served swiper.js go live. nothing runs on the mac.
+on:
+  push:
+    branches: [main]
+    paths: ['swiper.js', 'shortcut/Swiper.shortcut', 'worker/**', '.github/workflows/deploy.yml']
+  workflow_dispatch:
+concurrency: deploy
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: stage the served files
+        run: |
+          mkdir -p worker/public
+          cp swiper.js worker/public/swiper.js
+          [ -f shortcut/Swiper.shortcut ] && cp shortcut/Swiper.shortcut worker/public/Swiper.shortcut || true
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
