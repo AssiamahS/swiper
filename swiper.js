@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.6.8';
+  var VERSION = '1.6.9';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -545,6 +545,7 @@
     if (V.nopePiercings !== false && v.facial_piercings === true) return { d: 'nope', why: 'face piercings' };
     if (V.nopeAlt !== false && v.alt_style === true) return { d: 'nope', why: 'alt style' };
     // bikini/swimsuit and in shape: the body is on show, like
+    if (V.requireFullBody && v.full_body_visible !== true) return { d: 'nope', why: 'no full-body photo' };
     if (V.swimwearAutoLike && v.swimwear === true) return { d: 'like', why: 'bikini, ' + body };
     if (num(v.glutes) !== null && num(v.glutes) >= (V.glutesAutoLike || 7)) return { d: 'like', why: 'big butt ' + v.glutes };
     if (V.gymSelfieLike !== false && v.gym_selfie === true) return { d: 'like', why: 'gym selfie' };
@@ -702,11 +703,12 @@
   }
   function scheduleBreak() { nextBreakAt = sinceBreak + rndInt(cfg.breakEvery[0], cfg.breakEvery[1]); }
   var lastCardKey = '', lastCardAt = 0, lastDecision = null, stuckRetries = 0;
-  function loop() {
-    if (!running) return;
-    step().catch(function (e) { log('error: ' + (e && e.message || e), 'warn'); return sleep(3000); }).then(function () { if (running) loop(); });
+  var loopGen = 0;   // Stop then Start used to leave the old loop running beside the new one: two loops on one deck = verdicts on the wrong card
+  function loop(g) {
+    if (!running || g !== loopGen) return;
+    step(g).catch(function (e) { log('error: ' + (e && e.message || e), 'warn'); return sleep(3000); }).then(function () { if (running && g === loopGen) loop(g); });
   }
-  function step() {
+  function step(g) {
     if (!withinHours()) { setStatus('outside hours window, waiting'); return sleep(30000); }
     if (stats.likes + stats.nopes >= cfg.maxPerDay) { log('daily cap reached (' + cfg.maxPerDay + '), stopping'); stop(); return Promise.resolve(); }
     var m = findModal();
@@ -767,7 +769,7 @@
         var viaSeat = function (e) { if (!(e && e.brainDown)) throw e; setStatus('APIs out, GitHub seat judging ' + (p.name || 'card') + ' (~50s)...'); return judge(p, { prefetch: true }); };
         var jp = ce ? (ce.v ? Promise.resolve(ce.v) : ce.promise.catch(viaSeat)) : judge(p).catch(viaSeat);
         return jp.then(function (v) {
-          stats.judged++; lastVerdict = v; var r = applyVerdict(v);
+          stats.judged++; lastVerdict = v; var r = applyVerdict(v); if (r) r.v = v;
           if (ce) { delete verdictCache[cacheKey(p)]; prefetchTick(); }
           log((p.name || '?') + (p.age ? ' ' + p.age : '') + ' -> ' + JSON.stringify({ body: v.body, conf: v.body_confidence, q: v.photo_quality, swim: v.swimwear, curves: v.curves, face: v.face, bust: v.bust, sexy: v.sexy_vibe, fit: v.in_shape, full: v.full_body_visible, dyed: v.dyed_hair, butt: v.glutes, gym: v.gym_selfie, pierce: v.facial_piercings, alt: v.alt_style, n: p.photos.length }) + ' [' + v._model + ']');
           return r;
@@ -791,11 +793,12 @@
       return sleep(swipeDelay()).then(function () { return d; });
     }).then(function (d) {
       if (!d) return;
+      if (g !== loopGen) { log('stale decision for ' + (p.name || '?') + ' dropped (loop restarted)', 'warn'); return; }
       var how = swipe(d.d); lastDecision = d.d; lastCardAt = Date.now();
       if (d.d === 'like') stats.likes++; else stats.nopes++;
-      liveAdd({ ts: Date.now(), k: d.d === 'like' ? 'like' : 'nope', m: (p.name || '?') + (p.age ? ' ' + p.age : '') + ': ' + d.d + ' (' + (d.why || '') + ')', d: { name: p.name, age: p.age, why: d.why, verdict: lastVerdict, bio: (p.bio || '').slice(0, 200), photos: (p.photos || []).length } });
-      if (cfg.vision.provider === 'worker' && cfg.vision.workerKey && lastVerdict) {
-        tasteAdd({ name: p.name, age: p.age, decision: d.d, why: d.why, verdict: lastVerdict, bio: (p.bio || '').slice(0, 200), t: Date.now() });
+      liveAdd({ ts: Date.now(), k: d.d === 'like' ? 'like' : 'nope', m: (p.name || '?') + (p.age ? ' ' + p.age : '') + ': ' + d.d + ' (' + (d.why || '') + ')', d: { name: p.name, age: p.age, why: d.why, verdict: d.v || null, bio: (p.bio || '').slice(0, 200), photos: (p.photos || []).length } });
+      if (cfg.vision.provider === 'worker' && cfg.vision.workerKey && d.v) {
+        tasteAdd({ name: p.name, age: p.age, decision: d.d, why: d.why, verdict: d.v, bio: (p.bio || '').slice(0, 200), t: Date.now() });
         lastVerdict = null;
       }
       sessionSwipes++; sinceBreak++; saveStats(); renderStats();
@@ -811,9 +814,9 @@
     if (cfg.geo.enabled) { installGeo(); if (cfg.geo.pushToTinder) pushLocation(); }
     Object.keys(recs).forEach(function (k) { if (!verdictCache[k] && prefetchQueue.indexOf(k) < 0) prefetchQueue.push(k); }); setTimeout(prefetchTick, 0);
     if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }).catch(function () {});
-    log('started (speed ' + cfg.speed + ', like ratio ' + Math.round(cfg.likeRatio * 100) + '%)'); renderRun(); loop();
+    log('started (speed ' + cfg.speed + ', like ratio ' + Math.round(cfg.likeRatio * 100) + '%)'); renderRun(); loop(++loopGen);
   }
-  function stop() { running = false; tasteFlush(); if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; } log('stopped'); renderRun(); }
+  function stop() { running = false; loopGen++; tasteFlush(); if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; } log('stopped'); renderRun(); }
 
   function probe() {
     var card = findCard(); var p = card ? parseCard(card) : null;
