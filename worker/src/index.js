@@ -38,6 +38,7 @@ function ownPhotos(urls) {
   return best.length > 1 && best.length < urls.length ? best : urls;
 }
 
+let lastFetchErr = "";
 async function fetchPhoto(u) {
   const m = /\/(\d+)x(\d+)_/.exec(u);
   const candidates = m && +m[1] < 400 ? [u.replace(/\/(\d+)x(\d+)_/, "/640x800_"), u.replace(/\/(\d+)x(\d+)_/, "/"), u] : [u];
@@ -45,12 +46,12 @@ async function fetchPhoto(u) {
   for (const c of candidates) {
     try {
       const r = await fetch(c, { headers: { "User-Agent": "Mozilla/5.0", "Referer": "https://tinder.com/" }, cf: { cacheTtl: 0 } });
-      if (!r.ok) continue;
+      if (!r.ok) { lastFetchErr = `${r.status} ${new URL(c).host}${new URL(c).pathname.slice(0, 40)}`; continue; }
       const bytes = new Uint8Array(await r.arrayBuffer());
       const ct = (r.headers.get("Content-Type") || "image/jpeg").split(";")[0];
       if (!best || bytes.length > best.bytes.length) best = { bytes, ct };
       if (bytes.length >= TINY) break;
-    } catch {}
+    } catch (e) { lastFetchErr = `${String(e).slice(0, 60)} ${String(c).slice(0, 60)}`; }
   }
   return best;
 }
@@ -306,7 +307,15 @@ const app = {
       // the script the iOS Shortcut evals inside tinder.com (repo is private, so GitHub raw is out); any origin, never cached
       const r = await env.ASSETS.fetch(request);
       const h = new Headers(r.headers); h.set("Access-Control-Allow-Origin", "*"); h.set("Cache-Control", "no-store");
-      if (url.pathname === "/swiper.js") h.set("Content-Type", "application/javascript; charset=utf-8");
+      if (url.pathname === "/swiper.js") {
+        h.set("Content-Type", "application/javascript; charset=utf-8");
+        // the shortcut XHRs this from inside tinder.com: bake the judge key in so nobody pastes it by hand (a stale paste = endless 'bad key' holds)
+        const from = request.headers.get("Origin") || request.headers.get("Referer") || "";
+        const fromApp = /^https:\/\/([a-z0-9-]+\.)?(tinder|bumble)\.com(\/|$)/.test(from);
+        let src = await r.text();
+        if (fromApp && env.JUDGE_KEY) src = src.replace("'__JUDGE_KEY__'", JSON.stringify(env.JUDGE_KEY));
+        return new Response(src, { status: r.status, headers: h });
+      }
       return new Response(r.body, { status: r.status, headers: h });
     }
     if (request.method === "GET" && url.pathname === "/") return new Response(INSTALL_HTML, { headers: { "Content-Type": "text/html; charset=utf-8" } });
@@ -346,7 +355,7 @@ const app = {
     const fetched = (await Promise.all(urls.map(fetchPhoto))).filter(Boolean);
     const real = fetched.filter((p) => p.bytes.length >= TINY);
     if (fetched.length && !real.length) return json({ error: `no usable photos (${fetched.length} tiny thumbnails, profile has no real pictures)` }, 200, request);
-    if (!real.length) return json({ error: "no photos could be fetched" }, 200, request);
+    if (!real.length) return json({ error: `no photos could be fetched (${lastFetchErr})` }, 200, request);
     const imgs = real.map((p) => ({ ct: p.ct, b64: b64(p.bytes) }));
     const kb = Math.round(real.reduce((a, p) => a + p.bytes.length, 0) / 1024);
     const t1 = Date.now();

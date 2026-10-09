@@ -10,9 +10,10 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.6.5';
+  var VERSION = '1.6.6';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
+  var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
 
   // ---------------------------------------------------------------- config
   var DEFAULTS = {
@@ -99,6 +100,8 @@
 
   var cfg = deepMerge(DEFAULTS, loadJSON(LS_CFG, {}));
   function saveCfg() { saveJSON(LS_CFG, cfg); }
+  // the served script carries the worker key: it always wins over whatever was pasted (stale/truncated keys = 'bad key' holds)
+  if (BAKED_KEY.indexOf('__') !== 0 && cfg.vision.workerKey !== BAKED_KEY) { cfg.vision.workerKey = BAKED_KEY; saveCfg(); }
   // migrate stale default model lists from older versions
   if (cfg.vision.models === 'google/gemma-4-31b-it:free, nex-agi/nex-n2.5-pro:free, google/gemma-4-26b-a4b-it:free') { cfg.vision.models = DEFAULTS.vision.models; saveCfg(); }
   if (cfg.vision.geminiModel === 'gemini-2.5-flash-lite' || cfg.vision.geminiModel === 'gemini-3.1-flash-lite') { cfg.vision.geminiModel = DEFAULTS.vision.geminiModel; saveCfg(); }
@@ -736,7 +739,7 @@
       if (rc && rc.photos.length) { p.photos = rc.photos.slice(0, 9); if (rc.text) p.bio = (p.bio + ' ' + rc.text).slice(0, 900); }
       if (!dec) dec = textDecision(p);
       if (!dec && cfg.vision.enabled && !visionReady()) {
-        log('vision on but no key: Vision tab -> ' + (cfg.vision.provider === 'worker' ? 'paste the Worker key (swiper-judge)' : 'paste a ' + cfg.vision.provider + ' key') + ', holding 60s (no blind swipes)', 'warn');
+        log('vision on but no key: Vision tab -> ' + (cfg.vision.provider === 'worker' ? 'reload tinder.com and re-run the Swiper shortcut (the key is built into the served script)' : 'paste a ' + cfg.vision.provider + ' key') + ', holding 60s (no blind swipes)', 'warn');
         return { d: 'wait', why: 'no vision key' };
       }
       if (!dec && cfg.vision.enabled && visionReady() && p.photos.length) {
@@ -881,7 +884,7 @@
     bodies.Vision.append(
       field('Vision judge on', 'vision.enabled', 'check'),
       field('Provider', 'vision.provider', 'select', { options: ['worker', 'openrouter', 'gemini', 'bridge'] }),
-      field('Worker key (swiper-judge)', 'vision.workerKey', 'password', { placeholder: 'from the Mac keychain swiper-judge-key' }),
+      field('Worker key (swiper-judge)', 'vision.workerKey', 'password', { placeholder: 'built in when the shortcut loads the script' }),
       field('OpenRouter key', 'vision.key', 'password', { placeholder: 'sk-or-v1-...' }),
       field('Models (comma, first wins)', 'vision.models', 'textarea'),
       field('Gemini key (aistudio.google.com/apikey)', 'vision.geminiKey', 'password', { placeholder: 'AIza...' }),
