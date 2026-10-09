@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.6.6';
+  var VERSION = '1.6.7';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -102,6 +102,9 @@
   function saveCfg() { saveJSON(LS_CFG, cfg); }
   // the served script carries the worker key: it always wins over whatever was pasted (stale/truncated keys = 'bad key' holds)
   if (BAKED_KEY.indexOf('__') !== 0 && cfg.vision.workerKey !== BAKED_KEY) { cfg.vision.workerKey = BAKED_KEY; saveCfg(); }
+  // a provider with no key would hold forever; the worker always has one, so fall back to it instead of waiting for a paste
+  var keyless = (cfg.vision.provider === 'openrouter' && !cfg.vision.key) || (cfg.vision.provider === 'gemini' && !cfg.vision.geminiKey);
+  if (keyless && cfg.vision.workerKey) { cfg.vision.provider = 'worker'; saveCfg(); }
   // migrate stale default model lists from older versions
   if (cfg.vision.models === 'google/gemma-4-31b-it:free, nex-agi/nex-n2.5-pro:free, google/gemma-4-26b-a4b-it:free') { cfg.vision.models = DEFAULTS.vision.models; saveCfg(); }
   if (cfg.vision.geminiModel === 'gemini-2.5-flash-lite' || cfg.vision.geminiModel === 'gemini-3.1-flash-lite') { cfg.vision.geminiModel = DEFAULTS.vision.geminiModel; saveCfg(); }
