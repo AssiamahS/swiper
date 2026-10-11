@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.7.0';
+  var VERSION = '1.7.1';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -1096,7 +1096,7 @@
         if (!d.length) return log('no region found for "' + q + '"', 'warn');
         var bb = d[0].boundingbox.map(Number), s = bb[0], n = bb[1], w = bb[2], e = bb[3], gj = d[0].geojson;
         var kmLat = (n - s) * 111, kmLng = (e - w) * 111 * Math.cos((s + n) / 2 * Math.PI / 180);
-        var step = Math.min(80, Math.max(25, Math.sqrt(kmLat * kmLng / 30)));   // ~30 stops, 25-80 km apart
+        var step = Math.min(80, Math.max(6, Math.sqrt(kmLat * kmLng / 30)));    // ~30 stops; a state = 25-80 km apart, a city = a few km
         var dLat = step / 111, dLng = step / (111 * Math.cos((s + n) / 2 * Math.PI / 180));
         var pts = [], row = 0;
         for (var lat = s + dLat / 2; lat < n; lat += dLat, row++) {
