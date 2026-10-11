@@ -10,7 +10,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.6.9';
+  var VERSION = '1.7.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -73,9 +73,12 @@
       enabled: false, lat: 40.758, lng: -73.9855, accuracy: 25,
       wander: 0,              // meters, 0 = fixed pin
       pushToTinder: true,
-      route: [],              // [[lat, lng, name], ...] -> the pin snakes through these, one hop every routeEvery swipes
-      routeEvery: 30,
-      routeIdx: 0
+      route: [],              // [[lat, lng, name], ...] -> the pin snakes through these
+      routeEvery: 30,         // hop after this many swipes (0 = only when the deck runs out)
+      routeIdx: 0,
+      routeName: '',          // region the route was built for (Geo tab -> Build route)
+      hopWhenEmpty: true,     // no card for emptySec -> hop to the next route point and refresh the deck
+      emptySec: 20
     },
     msg: {
       enabled: false,
@@ -131,11 +134,17 @@
   // rules v6 (2026-09-28): never a man — the fallback brains (mistral/llama) are looser on gender than gemini, so the bar is 8+ like instaFollowUp
   if ((cfg.rulesVersion || 0) < 6) { cfg.vision.minFeminine = Math.max(8, cfg.vision.minFeminine || 0); cfg.rulesVersion = 6; saveCfg(); }
   if ((cfg.rulesVersion || 0) < 9) { cfg.vision.prefetch = 10; if ((cfg.rulesVersion || 0) >= 7) { cfg.rulesVersion = 9; saveCfg(); } }
+  // rules v10 (2026-10-11): a pin dropped by hand far from the Mexico route used to get yanked back there on the next hop (Philly -> Monterrey)
+  if ((cfg.rulesVersion || 0) < 10 && (cfg.rulesVersion || 0) >= 7) {
+    var r10 = cfg.geo.route || [], c10 = r10[cfg.geo.routeIdx || 0];
+    if (c10 && Math.abs(c10[0] - cfg.geo.lat) + Math.abs(c10[1] - cfg.geo.lng) > 2) { cfg.geo.route = []; cfg.geo.routeIdx = 0; cfg.geo.routeName = ''; }
+    cfg.rulesVersion = 10; saveCfg();
+  }
   if ((cfg.rulesVersion || 0) < 7) {
     cfg.maxPerDay = 100000; cfg.breakLen = [8, 20]; cfg.sleepLen = [3, 6];
     cfg.geo.enabled = true; cfg.geo.pushToTinder = true; cfg.geo.route = MEXICO_ROUTE; cfg.geo.routeEvery = 30; cfg.geo.routeIdx = 0; cfg.geo.wander = 800;
     cfg.geo.lat = MEXICO_ROUTE[0][0]; cfg.geo.lng = MEXICO_ROUTE[0][1];
-    cfg.rulesVersion = 7; saveCfg();
+    cfg.rulesVersion = 10; saveCfg();
   }
 
   // 2026-09-29: user wants an AI opener on every match
@@ -684,16 +693,36 @@
   window.addEventListener('pagehide', function () { tasteFlush(); });
 
   var sinceHop = 0;
-  function routeHop() {
+  // move the pin to the next route point (the "snake"); reason = 'swipes' (every routeEvery) or 'out of cards'
+  function hopNow(reason) {
     var g = cfg.geo, r = g.route || [];
-    if (!g.enabled || r.length < 2) return;
-    if (++sinceHop < (g.routeEvery || 30)) return;
+    if (!g.enabled || r.length < 2) return false;
     sinceHop = 0; g.routeIdx = ((g.routeIdx || 0) + 1) % r.length;
     var w = r[g.routeIdx];
     g.lat = +(w[0] + (Math.random() - 0.5) * 0.03).toFixed(5); g.lng = +(w[1] + (Math.random() - 0.5) * 0.03).toFixed(5); saveCfg();
-    log('geo: hop ' + (g.routeIdx + 1) + '/' + r.length + ' -> ' + (w[2] || '') + ' ' + g.lat + ',' + g.lng, 'good');
+    log('geo: hop ' + (g.routeIdx + 1) + '/' + r.length + ' -> ' + (w[2] || '') + ' ' + g.lat + ',' + g.lng + ' (' + reason + ')', 'good');
+    drawRoute();
     if (g.pushToTinder) pushLocation();
+    return true;
   }
+  function routeHop() {
+    var g = cfg.geo;
+    if (!g.enabled || (g.route || []).length < 2 || !(g.routeEvery > 0)) return;
+    if (++sinceHop < g.routeEvery) return;
+    hopNow('swipes');
+  }
+  // Tinder only re-fetches recs from the new spot when the stack is empty; nudge it instead of a page reload (a reload kills this script)
+  function refreshDeck() {
+    var b = Array.prototype.slice.call(document.querySelectorAll('button, a')).filter(function (x) { return !x.closest('#swiper-panel') && visible(x) && /try again|retry|refresh|reload|keep swiping|start swiping/i.test(textOf(x)); })[0];
+    if (b) { log('deck refresh: tapping "' + textOf(b).slice(0, 30) + '"'); b.click(); return sleep(6000); }
+    log('deck refresh: re-entering /app/recs');
+    try { history.pushState({}, '', '/app/matches'); window.dispatchEvent(new PopStateEvent('popstate', { state: {} })); } catch (e) {}
+    return sleep(1500).then(function () {
+      try { history.pushState({}, '', '/app/recs'); window.dispatchEvent(new PopStateEvent('popstate', { state: {} })); } catch (e) {}
+      return sleep(6000);
+    });
+  }
+  var emptySince = 0, emptyNoted = 0;
 
   // ---------------------------------------------------------------- engine
   function withinHours() {
@@ -727,7 +756,17 @@
       log('session cap ' + cfg.maxPerSession + ' reached, sleeping ' + Math.round(z) + ' min'); sessionSwipes = 0; return sleep(z * 60000);
     }
     var card = findCard();
-    if (!card) { setStatus('no card found, waiting'); return sleep(2500); }
+    if (!card) {
+      if (!emptySince) emptySince = Date.now();
+      var dry = Math.round((Date.now() - emptySince) / 1000);
+      if (cfg.geo.hopWhenEmpty && dry >= (cfg.geo.emptySec || 20)) {
+        emptySince = Date.now();
+        if (hopNow('out of cards')) return refreshDeck();
+        if (Date.now() - emptyNoted > 60000) { emptyNoted = Date.now(); log('out of cards here and no route set: Geo -> Build route (or pick a new pin)', 'warn'); }
+      }
+      setStatus('no card found for ' + dry + 's, waiting'); return sleep(2500);
+    }
+    emptySince = 0;
     var p = parseCard(card);
     var ck = p.name + '|' + p.age + '|' + (p.photos[0] || '');
     if (ck === lastCardKey) {
@@ -948,6 +987,18 @@
       field('Wander radius m (0 = fixed)', 'geo.wander', 'number'),
       field('Accuracy m', 'geo.accuracy', 'number'),
       field('Push to Tinder API', 'geo.pushToTinder', 'check'),
+      field('Hop every N swipes (0 = only when out of cards)', 'geo.routeEvery', 'number'),
+      field('Hop when the deck runs out', 'geo.hopWhenEmpty', 'check'),
+      field('...after no cards for sec', 'geo.emptySec', 'number'),
+      h('div', { 'class': 'wide' }, [
+        h('label', {}, ['Route through a region', h('input', { id: 'sw-route-q', type: 'text', placeholder: 'Pennsylvania / New Jersey / Mexico' })]),
+        h('div', {}, [
+          h('button', { 'class': 'sw-act', onclick: function () { buildRegionRoute(document.getElementById('sw-route-q').value); } }, ['Build route']),
+          h('button', { 'class': 'sw-act', onclick: function () { hopNow('manual') || log('no route to hop on', 'warn'); } }, ['Hop now']),
+          h('button', { 'class': 'sw-act', onclick: function () { cfg.geo.route = []; cfg.geo.routeIdx = 0; cfg.geo.routeName = ''; saveCfg(); drawRoute(); renderRouteInfo(); log('route cleared, pin is fixed now'); } }, ['Clear route'])
+        ]),
+        h('small', { id: 'sw-route-info' }, [''])
+      ]),
       h('div', {}, [
         h('button', { 'class': 'sw-act', onclick: function () { installGeo(); pushLocation(); } }, ['Apply now']),
         h('button', { 'class': 'sw-act', onclick: function () { navigator.geolocation.getCurrentPosition(function (p) { set('geo.lat', p.coords.latitude); set('geo.lng', p.coords.longitude); log('pin set to ' + p.coords.latitude.toFixed(4) + ',' + p.coords.longitude.toFixed(4)); }, function (e) { log('gps: ' + e.message, 'warn'); }); } }, ['Use real GPS']),
@@ -959,7 +1010,7 @@
           h('button', { 'class': 'sw-act', onclick: function () { geocode(document.getElementById('sw-map-q').value); } }, ['Go'])
         ]),
         h('div', { id: 'sw-map', style: 'height:220px;border-radius:8px;overflow:hidden' }),
-        h('small', { id: 'sw-map-hint' }, ['Tap the map to drop the pin. It fills Latitude/Longitude above and pushes to Tinder if Spoof is on.'])
+        h('small', { id: 'sw-map-hint' }, ['Tap the map to drop the pin (that clears any route). It fills Latitude/Longitude above and pushes to Tinder if Spoof is on.'])
       ]),
       h('small', {}, ['Same override as GeoPin. New cards come from the new spot once the current stack runs out; a full page reload also refreshes it (then re-run the shortcut).'])
     );
@@ -978,6 +1029,7 @@
       h('button', { 'class': 'sw-act', onclick: function () { stats = { day: today(), likes: 0, nopes: 0, matches: 0, msgs: 0, judged: 0 }; saveStats(); renderStats(); } }, ['Reset stats'])
     ]), logEl);
 
+    setTimeout(renderRouteInfo, 0);
     statsEl = h('div', { 'class': 'sw-stats' });
     statusEl = h('div', { 'class': 'sw-status' }, ['ready']);
     var body = h('div', { 'class': 'sw-body' }, [tabs].concat(tabNames.map(function (n) { return bodies[n]; })).concat([statsEl, statusEl]));
@@ -987,13 +1039,86 @@
     renderStats(); renderRun();
   }
   // ---- in-panel map (Leaflet + OSM tiles, Nominatim search)
-  var map = null, marker = null;
+  var map = null, marker = null, routeLine = null, leafletLoading = false;
+  // two CDNs + a timeout: a hung script load used to leave the map box blank with nothing in the Log
+  var LEAFLET_CDNS = ['https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet'];
   function loadLeaflet(cb) {
-    if (window.L && window.L.map) return cb();
-    var css = h('link', { rel: 'stylesheet', href: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' }); document.head.appendChild(css);
-    var sc = h('script', { src: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' }); sc.onload = cb; sc.onerror = function () { log('map library failed to load', 'warn'); }; document.head.appendChild(sc);
+    if (window.L && window.L.map && window.L.version) return cb();
+    if (leafletLoading) return;
+    leafletLoading = true;
+    var i = 0;
+    function tryNext() {
+      if (i >= LEAFLET_CDNS.length) { leafletLoading = false; log('map library failed to load from every CDN (content blocker / no network?)', 'warn'); return; }
+      var base = LEAFLET_CDNS[i++], done = false;
+      var css = h('link', { rel: 'stylesheet', href: base + '.css' }); document.head.appendChild(css);
+      var sc = h('script', { src: base + '.js' });
+      var timer = setTimeout(function () { if (done) return; done = true; sc.onload = sc.onerror = null; log('map library timed out on ' + base.split('/')[2] + ', trying the next CDN', 'warn'); tryNext(); }, 8000);
+      sc.onload = function () { if (done) return; done = true; clearTimeout(timer); leafletLoading = false; log('map library loaded from ' + base.split('/')[2]); cb(); };
+      sc.onerror = function () { if (done) return; done = true; clearTimeout(timer); log('map library blocked on ' + base.split('/')[2] + ', trying the next CDN', 'warn'); tryNext(); };
+      document.head.appendChild(sc);
+    }
+    tryNext();
+  }
+  function drawRoute() {
+    if (!map || !window.L) return;
+    var r = cfg.geo.route || [];
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    if (r.length >= 2) routeLine = L.polyline(r.map(function (w) { return [w[0], w[1]]; }), { color: '#fd5068', weight: 3, opacity: 0.8 }).addTo(map);
+    if (marker) marker.setLatLng([cfg.geo.lat, cfg.geo.lng]);
+    renderRouteInfo();
+  }
+  function renderRouteInfo() {
+    var el = document.getElementById('sw-route-info'); if (!el) return;
+    var r = cfg.geo.route || [];
+    el.textContent = r.length >= 2 ? ('route: ' + (cfg.geo.routeName || '') + ' ' + r.length + ' stops, at ' + ((cfg.geo.routeIdx || 0) + 1) + '/' + r.length + ' ' + (r[cfg.geo.routeIdx || 0][2] || '')) : 'no route: the pin stays where it is';
+  }
+  // point in polygon (ray casting), ring = [[lng, lat], ...]
+  function inRing(lng, lat, ring) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function inGeo(lng, lat, gj) {
+    if (!gj) return true;
+    if (gj.type === 'Polygon') return inRing(lng, lat, gj.coordinates[0]);
+    if (gj.type === 'MultiPolygon') return gj.coordinates.some(function (poly) { return inRing(lng, lat, poly[0]); });
+    return true;
+  }
+  // "snake through the state": geocode the region with its outline, lay a grid over it, walk the rows back and forth
+  function buildRegionRoute(q) {
+    q = (q || '').trim(); if (!q) return log('type a region first (state, country, metro)', 'warn');
+    log('building a route through "' + q + '"...');
+    fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&polygon_geojson=1&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); }).then(function (d) {
+        if (!d.length) return log('no region found for "' + q + '"', 'warn');
+        var bb = d[0].boundingbox.map(Number), s = bb[0], n = bb[1], w = bb[2], e = bb[3], gj = d[0].geojson;
+        var kmLat = (n - s) * 111, kmLng = (e - w) * 111 * Math.cos((s + n) / 2 * Math.PI / 180);
+        var step = Math.min(80, Math.max(25, Math.sqrt(kmLat * kmLng / 30)));   // ~30 stops, 25-80 km apart
+        var dLat = step / 111, dLng = step / (111 * Math.cos((s + n) / 2 * Math.PI / 180));
+        var pts = [], row = 0;
+        for (var lat = s + dLat / 2; lat < n; lat += dLat, row++) {
+          var rowPts = [];
+          for (var lng = w + dLng / 2; lng < e; lng += dLng) if (inGeo(lng, lat, gj)) rowPts.push([+lat.toFixed(4), +lng.toFixed(4)]);
+          if (row % 2) rowPts.reverse();
+          pts = pts.concat(rowPts);
+        }
+        if (pts.length < 2) { pts = [[+d[0].lat, +d[0].lon]]; log('region outline too small for a grid, using its center', 'warn'); }
+        var name = (d[0].display_name || q).split(',')[0];
+        cfg.geo.route = pts.map(function (p, i) { return [p[0], p[1], name + ' ' + (i + 1) + '/' + pts.length]; });
+        cfg.geo.routeIdx = 0; cfg.geo.routeName = name; cfg.geo.routeEvery = 0; cfg.geo.hopWhenEmpty = true;
+        cfg.geo.lat = pts[0][0]; cfg.geo.lng = pts[0][1]; cfg.geo.enabled = true; saveCfg(); sinceHop = 0;
+        var ins = panel.querySelectorAll('input[type=number]');
+        ins.forEach(function (i) { var l = i.parentElement && i.parentElement.firstChild && i.parentElement.firstChild.textContent; if (l === 'Latitude') i.value = cfg.geo.lat; if (l === 'Longitude') i.value = cfg.geo.lng; if (/^Hop every/.test(l || '')) i.value = 0; });
+        log('route: ' + name + ', ' + pts.length + ' stops ~' + Math.round(step) + ' km apart, hops when the deck runs out; starting at stop 1', 'good');
+        installGeo(); if (cfg.geo.pushToTinder) pushLocation();
+        if (map) { map.fitBounds([[s, w], [n, e]]); } drawRoute(); renderRouteInfo();
+      }).catch(function (e) { log('route build failed: ' + e.message, 'warn'); });
   }
   function setPin(lat, lng) {
+    if ((cfg.geo.route || []).length) { cfg.geo.route = []; cfg.geo.routeIdx = 0; cfg.geo.routeName = ''; log('route cleared (pin dropped by hand)'); drawRoute(); renderRouteInfo(); }
     set('geo.lat', +lat.toFixed(5)); set('geo.lng', +lng.toFixed(5));
     var ins = panel.querySelectorAll('input[type=number]');
     ins.forEach(function (i) { var l = i.parentElement && i.parentElement.firstChild && i.parentElement.firstChild.textContent; if (l === 'Latitude') i.value = cfg.geo.lat; if (l === 'Longitude') i.value = cfg.geo.lng; });
@@ -1006,13 +1131,18 @@
     if (w.style.display !== 'none') { w.style.display = 'none'; return; }
     w.style.display = '';
     loadLeaflet(function () {
-      if (!map) {
-        map = L.map('sw-map', { zoomControl: true, attributionControl: false }).setView([cfg.geo.lat, cfg.geo.lng], 9);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-        marker = L.marker([cfg.geo.lat, cfg.geo.lng]).addTo(map);
-        map.on('click', function (e) { setPin(e.latlng.lat, e.latlng.lng); });
-      }
-      setTimeout(function () { map.invalidateSize(); }, 200);
+      try {
+        if (!map) {
+          map = L.map('sw-map', { zoomControl: true, attributionControl: false }).setView([cfg.geo.lat, cfg.geo.lng], 9);
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+          marker = L.marker([cfg.geo.lat, cfg.geo.lng]).addTo(map);
+          map.on('click', function (e) { setPin(e.latlng.lat, e.latlng.lng); });
+          drawRoute();
+          log('map ready');
+        }
+        setTimeout(function () { map.invalidateSize(); }, 200);
+        setTimeout(function () { map.invalidateSize(); }, 1200);
+      } catch (e) { log('map init failed: ' + e.message, 'warn'); }
     });
   }
   function geocode(q) {
