@@ -8,3 +8,4 @@ bumble/.lock
 worker/public/
 worker/node_modules/
 worker/.wrangler/
+me/

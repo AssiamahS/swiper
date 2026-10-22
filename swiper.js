@@ -4,13 +4,14 @@
  *
  * Features: human-like auto swipe (speed levels, breaks, sleep, caps, hours window),
  * text filters, vision judge (OpenRouter, free models) for body type / photo quality /
- * swimwear, geo spoof (fixed pin or wander, pushed to Tinder), auto first message on match.
+ * swimwear, geo spoof (fixed pin or wander, pushed to Tinder), auto first message on match,
+ * taste guard (like-rate cap), human dwell per card, real match count from the matches API (1.8.0).
  */
 (function () {
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.7.1';
+  var VERSION = '1.8.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -18,6 +19,15 @@
   // ---------------------------------------------------------------- config
   var DEFAULTS = {
     speed: 3,                 // 1 fastest .. 5 slowest
+    // 1.8.0 (TheDonAyo's Tinder teardown, 2026-10-20): Tinder averages every photo you like into a "type" embedding, logs
+    // photo view count + stare time per card (RecsStatusDetails), and sells you by RSRR (right-swipe-received ratio).
+    maxLikeRate: 0.4,         // rolling like share over the last N swipes; above it only strong likes go through (keeps the type embedding clean)
+    likeRateWindow: 40,
+    dwellLikeMs: [900, 2200], // per extra photo on a card we like: look at what we want (stare time is a taste signal)
+    dwellNopeMs: [250, 600],
+    dwellLikePhotos: [2, 4],  // extra photos viewed after a like decision / a nope decision
+    dwellNopePhotos: [0, 1],
+    matchPollMin: 10,         // read /v2/matches every N min: matches that land later never show the "It's a Match" modal
     likeRatio: 0.7,           // like probability when nothing else decides
     maxPerSession: 120,       // then "go to sleep" for a few hours
     maxPerDay: 300,
@@ -146,6 +156,10 @@
     cfg.geo.lat = MEXICO_ROUTE[0][0]; cfg.geo.lng = MEXICO_ROUTE[0][1];
     cfg.rulesVersion = 10; saveCfg();
   }
+
+  // rules v11 (2026-10-21, 1.8.0): the random-ratio fallback polluted the type embedding (74 likes, 0 matches on the feed);
+  // unsure = nope, like share capped at 40% over 40 swipes, real match count from the API
+  if ((cfg.rulesVersion || 0) < 11) { cfg.vision.unsure = 'nope'; cfg.likeRatio = 0; cfg.maxLikeRate = 0.4; cfg.likeRateWindow = 40; cfg.rulesVersion = 11; saveCfg(); }
 
   // 2026-09-29: user wants an AI opener on every match
   if (!cfg.msgDefaultsV1) { cfg.msg.enabled = true; cfg.msg.ai = true; cfg.msgDefaultsV1 = true; saveCfg(); }
@@ -692,6 +706,69 @@
   setInterval(tasteFlush, 10 * 60 * 1000);
   window.addEventListener('pagehide', function () { tasteFlush(); });
 
+  // ---------------------------------------------------------------- taste guard (1.8.0)
+  // Tinder's "what you want" = the average embedding of everything you liked, so a loose like is noise in your own feed.
+  // Above maxLikeRate only a strong like (two reasons, or a 9+ face/butt) goes through; the rest are logged as 'rate cap'.
+  var LS_RECENT = 'swiper.recent';
+  var recent = loadJSON(LS_RECENT, []);
+  function likeRate() { var n = recent.length; if (!n) return 0; var l = 0; for (var i = 0; i < n; i++) if (recent[i]) l++; return l / n; }
+  function recordDecision(isLike) { recent.push(isLike ? 1 : 0); var w = cfg.likeRateWindow || 40; if (recent.length > w) recent.splice(0, recent.length - w); saveJSON(LS_RECENT, recent); }
+  function likeStrength(d) {
+    var v = d && d.v; if (!v) return 1;
+    var n = function (x) { var k = Number(x); return isNaN(k) ? 0 : k; };
+    var strong = 0;
+    if (n(v.face) >= 9 || n(v.glutes) >= 9 || v.swimwear === true) strong += 2;
+    strong += (String(d.why || '').split(',').length > 1 ? 1 : 0);
+    if (n(v.face) >= (cfg.vision.likeFace || 8)) strong += 1;
+    if (n(v.curves) >= (cfg.vision.curvesAutoLike || 7) || n(v.bust) >= (cfg.vision.bustAutoLike || 7) || n(v.sexy_vibe) >= (cfg.vision.sexyAutoLike || 7)) strong += 1;
+    return strong;
+  }
+  function tasteGuard(d) {
+    if (!d || d.d !== 'like' || !(cfg.maxLikeRate > 0)) return d;
+    var w = cfg.likeRateWindow || 40;
+    if (recent.length < Math.min(10, w) || likeRate() <= cfg.maxLikeRate) return d;
+    if (likeStrength(d) >= 2) return d;
+    return { d: 'nope', why: 'rate cap ' + Math.round(likeRate() * 100) + '% > ' + Math.round(cfg.maxLikeRate * 100) + '% (' + (d.why || '') + ')', v: d.v, capped: true };
+  }
+  // after the decision, look the way a person does: linger on the ones we like, flick past the rest (view count + stare time are logged per card)
+  function dwell(card, d) {
+    var like = d && d.d === 'like';
+    var photos = like ? (cfg.dwellLikePhotos || [2, 4]) : (cfg.dwellNopePhotos || [0, 1]);
+    var ms = like ? (cfg.dwellLikeMs || [900, 2200]) : (cfg.dwellNopeMs || [250, 600]);
+    var n = rndInt(photos[0], photos[1]), chain = Promise.resolve();
+    for (var i = 0; i < n; i++) chain = chain.then(function () { if (!running) return; nextPhoto(card); return sleep(rnd(ms[0], ms[1])); });
+    return chain;
+  }
+
+  // ---------------------------------------------------------------- match poll (1.8.0)
+  // the modal only fires when she already liked us; most matches land later and were never counted (zero MATCH lines in two weeks of feed)
+  var LS_MATCHSEEN = 'swiper.matchseen';
+  var matchSeen = loadJSON(LS_MATCHSEEN, { ids: [], since: 0 }), matchPollAt = 0;
+  function pollMatches(force) {
+    var every = (cfg.matchPollMin || 0) * 60000;
+    if (!every && !force) return Promise.resolve();
+    if (!force && Date.now() - matchPollAt < every) return Promise.resolve();
+    matchPollAt = Date.now();
+    var tok = tinderToken(); if (!tok) return Promise.resolve();
+    return fetch('https://api.gotinder.com/v2/matches?count=60&message=0&is_tinder_u=false&locale=en', { headers: { 'X-Auth-Token': tok, 'platform': 'web' } })
+      .then(function (r) { if (!r.ok) throw new Error('matches ' + r.status); return r.json(); })
+      .then(function (j) {
+        var ms = (j && j.data && j.data.matches) || [], seen = {}, fresh = [];
+        matchSeen.ids.forEach(function (id) { seen[id] = 1; });
+        ms.forEach(function (m) { var id = m._id || m.id; var t = Date.parse(m.created_date || 0) || 0; if (!seen[id] && t > (matchSeen.since || 0)) fresh.push({ id: id, name: m.person && m.person.name, t: t }); });
+        if (!matchSeen.since) { matchSeen.since = Date.now(); matchSeen.ids = ms.map(function (m) { return m._id || m.id; }).slice(0, 200); saveJSON(LS_MATCHSEEN, matchSeen); log('match poll: baseline ' + ms.length + ' existing matches'); return; }
+        fresh.forEach(function (f) {
+          stats.matches++; matchSeen.ids.push(f.id);
+          log('MATCH (later) with ' + (f.name || '?'), 'good');
+          liveAdd({ ts: Date.now(), k: 'match', m: 'MATCH ' + (f.name || '?') + ' (api)', d: { name: f.name, when: f.t } });
+        });
+        if (fresh.length) { saveStats(); renderStats(); }
+        matchSeen.ids = matchSeen.ids.slice(-200); saveJSON(LS_MATCHSEEN, matchSeen);
+        setStatus('match poll: ' + fresh.length + ' new, ' + ms.length + ' total');
+      })
+      .catch(function (e) { log('match poll failed: ' + e.message, 'warn'); });
+  }
+
   var sinceHop = 0;
   // move the pin to the next route point (the "snake"); reason = 'swipes' (every routeEvery) or 'out of cards'
   function hopNow(reason) {
@@ -739,6 +816,7 @@
   }
   function step(g) {
     if (!withinHours()) { setStatus('outside hours window, waiting'); return sleep(30000); }
+    pollMatches(false);
     if (stats.likes + stats.nopes >= cfg.maxPerDay) { log('daily cap reached (' + cfg.maxPerDay + '), stopping'); stop(); return Promise.resolve(); }
     var m = findModal();
     if (m) {
@@ -825,16 +903,18 @@
     }).then(function (d) {
       if (d && d.d === 'wait') { lastCardKey = ''; return sleep((cfg.vision.holdSec || 20) * 1000).then(function () { return null; }); }
       if (!d) d = { d: Math.random() < cfg.likeRatio ? 'like' : 'nope', why: 'ratio' };
-      if (Math.random() < cfg.openProfileChance) {
+      d = tasteGuard(d);
+      if (d.d === 'like' && Math.random() < cfg.openProfileChance) {
         var ob = card.querySelector('button[aria-label*="open profile" i], button[aria-label*="show more" i]');
-        if (ob) { ob.click(); return sleep(rnd(1500, 4000)).then(function () { key('Escape'); return sleep(600); }).then(function () { return d; }); }
+        if (ob) { ob.click(); return sleep(rnd(1500, 4000)).then(function () { key('Escape'); return sleep(600); }).then(function () { return dwell(card, d); }).then(function () { return d; }); }
       }
-      return sleep(swipeDelay()).then(function () { return d; });
+      return dwell(card, d).then(function () { return sleep(swipeDelay()); }).then(function () { return d; });
     }).then(function (d) {
       if (!d) return;
       if (g !== loopGen) { log('stale decision for ' + (p.name || '?') + ' dropped (loop restarted)', 'warn'); return; }
       var how = swipe(d.d); lastDecision = d.d; lastCardAt = Date.now();
       if (d.d === 'like') stats.likes++; else stats.nopes++;
+      recordDecision(d.d === 'like');
       liveAdd({ ts: Date.now(), k: d.d === 'like' ? 'like' : 'nope', m: (p.name || '?') + (p.age ? ' ' + p.age : '') + ': ' + d.d + ' (' + (d.why || '') + ')', d: { name: p.name, age: p.age, why: d.why, verdict: d.v || null, bio: (p.bio || '').slice(0, 200), photos: (p.photos || []).length } });
       if (cfg.vision.provider === 'worker' && cfg.vision.workerKey && d.v) {
         tasteAdd({ name: p.name, age: p.age, decision: d.d, why: d.why, verdict: d.v, bio: (p.bio || '').slice(0, 200), t: Date.now() });
@@ -851,6 +931,7 @@
     if (cfg.vision.enabled && !visionReady()) log('vision on but no key for ' + cfg.vision.provider + ': will HOLD, paste a key in the Vision tab', 'warn');
     running = true; sessionSwipes = 0; sinceBreak = 0; scheduleBreak(); lastCardKey = '';
     if (cfg.geo.enabled) { installGeo(); if (cfg.geo.pushToTinder) pushLocation(); }
+    pollMatches(true);
     Object.keys(recs).forEach(function (k) { if (!verdictCache[k] && prefetchQueue.indexOf(k) < 0) prefetchQueue.push(k); }); setTimeout(prefetchTick, 0);
     if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wakeLock = w; }).catch(function () {});
     log('started (speed ' + cfg.speed + ', like ratio ' + Math.round(cfg.likeRatio * 100) + '%)'); renderRun(); loop(++loopGen);
@@ -861,7 +942,7 @@
     var card = findCard(); var p = card ? parseCard(card) : null;
     var out = ['like btn: ' + (findButton('like') ? 'found' : 'MISSING'), 'nope btn: ' + (findButton('nope') ? 'found' : 'MISSING'),
       'card: ' + (card ? 'found' : 'MISSING'), 'photos loaded: ' + (p ? p.photos.length : 0), 'name/age: ' + (p ? p.name + ' ' + p.age : '-'),
-      'distance: ' + (p ? p.distance : '-'), 'token: ' + (tinderToken() ? 'found' : 'MISSING'), 'dialog: ' + (findModal() ? findModal().kind : 'none'),
+      'distance: ' + (p ? p.distance : '-'), 'token: ' + (tinderToken() ? 'found' : 'MISSING'), 'like rate: ' + Math.round(likeRate() * 100) + '% of last ' + recent.length, 'dialog: ' + (findModal() ? findModal().kind : 'none'),
       'bio: ' + (p ? p.bio.slice(0, 120) : '-')];
     out.forEach(function (l) { log('probe ' + l); });
   }
@@ -927,6 +1008,12 @@
       field('Break length sec (min, max)', 'breakLen', 'pair'),
       field('Sleep after session, min (min, max)', 'sleepLen', 'pair'),
       field('Photos to view per card (min, max)', 'photosToView', 'pair'),
+      field('Max like rate (rolling)', 'maxLikeRate', 'range', { min: 0, max: 1, step: 0.05 }),
+      field('Like rate window (swipes)', 'likeRateWindow', 'number'),
+      field('Dwell on a like: ms per photo (min, max)', 'dwellLikeMs', 'pair'),
+      field('Extra photos viewed on a like (min, max)', 'dwellLikePhotos', 'pair'),
+      field('Match poll every N min (0 = off)', 'matchPollMin', 'number'),
+      h('small', {}, ['1.8.0: Tinder averages what you like into your "type" and logs stare time per card. Stay under the like-rate cap, linger on the ones you want.']),
       field('Only swipe during hours', 'hours.enabled', 'check'),
       field('From hour (0-23)', 'hours.start', 'number'),
       field('To hour (0-23)', 'hours.end', 'number'),
@@ -1162,7 +1249,7 @@
     handle.addEventListener('mousedown', down); window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
     handle.addEventListener('touchstart', down, { passive: false }); window.addEventListener('touchmove', move, { passive: true }); window.addEventListener('touchend', up);
   }
-  function renderStats() { if (statsEl) statsEl.innerHTML = 'today <b>' + stats.likes + '</b> likes <b>' + stats.nopes + '</b> nopes <b>' + stats.matches + '</b> matches <b>' + stats.msgs + '</b> msgs <b>' + stats.judged + '</b> judged'; }
+  function renderStats() { if (statsEl) statsEl.innerHTML = 'today <b>' + stats.likes + '</b> likes <b>' + stats.nopes + '</b> nopes <b>' + stats.matches + '</b> matches <b>' + stats.msgs + '</b> msgs <b>' + stats.judged + '</b> judged · like rate <b>' + Math.round(likeRate() * 100) + '%</b>'; }
   function renderRun() { if (runBtn) { runBtn.textContent = running ? 'Stop' : 'Start'; runBtn.classList.toggle('on', running); } }
   function setStatus(s) { if (statusEl) statusEl.textContent = s; }
   function renderLog() { if (!logEl) return; logEl.innerHTML = logBuf.slice(-80).reverse().map(function (l) { return '<div class="' + l.c + '">' + l.t.replace(/</g, '&lt;') + '</div>'; }).join(''); }
