@@ -25,7 +25,7 @@ def keychain(s):
     return subprocess.run(["security", "find-generic-password", "-s", s, "-w"], capture_output=True, text=True).stdout.strip()
 
 
-GKEY, ORKEY = keychain("gemini"), keychain("openrouter")
+GKEY, ORKEY = keychain("gemini-paid") or keychain("gemini"), keychain("openrouter")  # gemini-paid = pm prepaid project (10/22), hcp free key as fallback
 JUDGE_URL, JUDGE_KEY = "https://swiper-judge.sylvesterassiamahpm.workers.dev", keychain("swiper-judge-key")  # worker/ in this repo: Workers AI vision, our own quota
 
 
