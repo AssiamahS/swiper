@@ -11,7 +11,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.8.0';
+  var VERSION = '1.8.1';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -23,6 +23,7 @@
     // photo view count + stare time per card (RecsStatusDetails), and sells you by RSRR (right-swipe-received ratio).
     maxLikeRate: 0.4,         // rolling like share over the last N swipes; above it only strong likes go through (keeps the type embedding clean)
     likeRateWindow: 40,
+    strongLike: 3,            // strength needed to pass above the cap: 9+ face/butt or bikini = 2, each extra reason/feature = 1 (first night at 2 the lane still ran 68% likes)
     dwellLikeMs: [900, 2200], // per extra photo on a card we like: look at what we want (stare time is a taste signal)
     dwellNopeMs: [250, 600],
     dwellLikePhotos: [2, 4],  // extra photos viewed after a like decision / a nope decision
@@ -727,7 +728,7 @@
     if (!d || d.d !== 'like' || !(cfg.maxLikeRate > 0)) return d;
     var w = cfg.likeRateWindow || 40;
     if (recent.length < Math.min(10, w) || likeRate() <= cfg.maxLikeRate) return d;
-    if (likeStrength(d) >= 2) return d;
+    if (likeStrength(d) >= (cfg.strongLike || 3)) return d;
     return { d: 'nope', why: 'rate cap ' + Math.round(likeRate() * 100) + '% > ' + Math.round(cfg.maxLikeRate * 100) + '% (' + (d.why || '') + ')', v: d.v, capped: true };
   }
   // after the decision, look the way a person does: linger on the ones we like, flick past the rest (view count + stare time are logged per card)
@@ -1010,6 +1011,7 @@
       field('Photos to view per card (min, max)', 'photosToView', 'pair'),
       field('Max like rate (rolling)', 'maxLikeRate', 'range', { min: 0, max: 1, step: 0.05 }),
       field('Like rate window (swipes)', 'likeRateWindow', 'number'),
+      field('Strength to pass the cap (2 loose .. 4 strict)', 'strongLike', 'range', { min: 2, max: 4 }),
       field('Dwell on a like: ms per photo (min, max)', 'dwellLikeMs', 'pair'),
       field('Extra photos viewed on a like (min, max)', 'dwellLikePhotos', 'pair'),
       field('Match poll every N min (0 = off)', 'matchPollMin', 'number'),
