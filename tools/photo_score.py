@@ -76,7 +76,13 @@ def main():
         except Exception as e:
             if attempt == 2: sys.exit(f'gemini failed: {e}')
             time.sleep(3 * (attempt + 1))
-    txt = r['candidates'][0]['content']['parts'][0]['text']; j = json.loads(txt)
+    txt = r['candidates'][0]['content']['parts'][0]['text']
+    try: j = json.loads(txt)
+    except json.JSONDecodeError:   # gemini sometimes emits a trailing comma or a // note; repair before giving up
+        import re
+        fixed = re.sub(r'//[^\n]*', '', txt); fixed = re.sub(r',\s*([}\]])', r'\1', fixed); fixed = fixed[fixed.find('{'):fixed.rfind('}') + 1]
+        try: j = json.loads(fixed)
+        except json.JSONDecodeError: (d / 'score.raw.txt').write_text(txt); sys.exit(f'gemini returned invalid JSON, saved to {d}/score.raw.txt')
     print(f'\n{"#":>2}  {"rsrr":>4}  face full mirr out  sun shrt smil grp  light sharp style  file')
     for ph in sorted(j['photos'], key=lambda x: -x['rsrr']):
         i = ph['i']; f = lambda k: ' x ' if ph.get(k) else ' . '
