@@ -11,7 +11,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.8.1';
+  var VERSION = '1.8.2';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -683,8 +683,19 @@
     var tok = tinderToken(); var p = livePosition();
     if (!tok) { log('geo: no Tinder API token in localStorage, DOM override only', 'warn'); return Promise.resolve(false); }
     var hdr = { 'X-Auth-Token': tok, 'Content-Type': 'application/json', 'platform': 'web' };
-    return fetch('https://api.gotinder.com/v2/meta', { method: 'POST', headers: hdr, body: JSON.stringify({ lat: p.lat, lon: p.lng, force_fetch_resources: true }) })
+    // 1.8.2: Plus/Gold/Platinum include Passport, so the hop is a legit "travel" (200 {"unlimited":true} verified 10/21) instead of a GPS
+    // report that jumps 300 km every 30 swipes; v2/meta stays as the fallback for an account without a subscription
+    var viaMeta = function () {
+      return fetch('https://api.gotinder.com/v2/meta', { method: 'POST', headers: hdr, body: JSON.stringify({ lat: p.lat, lon: p.lng, force_fetch_resources: true }) });
+    };
+    return fetch('https://api.gotinder.com/passport/user/travel', { method: 'POST', headers: hdr, body: JSON.stringify({ lat: p.lat, lon: p.lng }) })
       .then(function (r) {
+        if (r.ok) { log('geo: Passport set to ' + p.lat.toFixed(4) + ',' + p.lng.toFixed(4) + ' (travel ' + r.status + ')', 'good'); return { ok: true, passport: true }; }
+        log('geo: passport travel ' + r.status + ', falling back to v2/meta', 'warn');
+        return viaMeta();
+      }, function () { return viaMeta(); })
+      .then(function (r) {
+        if (r.passport) return true;
         if (r.ok) { log('geo: Tinder location set to ' + p.lat.toFixed(4) + ',' + p.lng.toFixed(4) + ' (v2/meta ' + r.status + ')', 'good'); return true; }
         return fetch('https://api.gotinder.com/user/ping', { method: 'POST', headers: hdr, body: JSON.stringify({ lat: p.lat, lon: p.lng }) })
           .then(function (r2) { log('geo: ping ' + r2.status, r2.ok ? 'good' : 'warn'); return r2.ok; });
