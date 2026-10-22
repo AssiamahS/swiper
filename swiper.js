@@ -11,7 +11,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.8.2';
+  var VERSION = '1.8.3';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -23,6 +23,7 @@
     // photo view count + stare time per card (RecsStatusDetails), and sells you by RSRR (right-swipe-received ratio).
     maxLikeRate: 0.4,         // rolling like share over the last N swipes; above it only strong likes go through (keeps the type embedding clean)
     likeRateWindow: 40,
+    capExemptButt: true,      // big-butt likes skip the like-rate cap
     strongLike: 3,            // strength needed to pass above the cap: 9+ face/butt or bikini = 2, each extra reason/feature = 1 (first night at 2 the lane still ran 68% likes)
     dwellLikeMs: [900, 2200], // per extra photo on a card we like: look at what we want (stare time is a taste signal)
     dwellNopeMs: [250, 600],
@@ -728,6 +729,8 @@
   function likeStrength(d) {
     var v = d && d.v; if (!v) return 1;
     var n = function (x) { var k = Number(x); return isNaN(k) ? 0 : k; };
+    // 1.8.3: user's #1 type: a big-butt like never gets capped (Emma 22, glutes 8, was noped at 43% > 40%)
+    if (cfg.capExemptButt !== false && n(v.glutes) >= (cfg.vision.glutesAutoLike || 7)) return 99;
     var strong = 0;
     if (n(v.face) >= 9 || n(v.glutes) >= 9 || v.swimwear === true) strong += 2;
     strong += (String(d.why || '').split(',').length > 1 ? 1 : 0);
@@ -1023,6 +1026,7 @@
       field('Max like rate (rolling)', 'maxLikeRate', 'range', { min: 0, max: 1, step: 0.05 }),
       field('Like rate window (swipes)', 'likeRateWindow', 'number'),
       field('Strength to pass the cap (2 loose .. 4 strict)', 'strongLike', 'range', { min: 2, max: 4 }),
+      field('Big butt always passes the cap', 'capExemptButt', 'check'),
       field('Dwell on a like: ms per photo (min, max)', 'dwellLikeMs', 'pair'),
       field('Extra photos viewed on a like (min, max)', 'dwellLikePhotos', 'pair'),
       field('Match poll every N min (0 = off)', 'matchPollMin', 'number'),
