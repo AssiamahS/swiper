@@ -11,7 +11,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.8.3';
+  var VERSION = '1.8.4';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -311,8 +311,20 @@
     p.photos = photoUrls(card);
     return p;
   }
-  function dialogs() { return Array.prototype.slice.call(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).filter(visible); }
+  // a parked bottom sheet stays in the DOM as visibility:hidden; treating it as open looped "closing dialog" for hours on slybox
+  function dialogs() { return Array.prototype.slice.call(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).filter(function (d) { return visible(d) && getComputedStyle(d).visibility !== 'hidden'; }); }
+  // the new match screen is no dialog and its "It's a match" headline is an image: find it by its close button + caption
+  function matchScreen() {
+    var bt = document.querySelector('button[title="Back to Tinder"]');
+    if (!bt || !visible(bt)) return null;
+    for (var el = bt.parentElement, up = 0; el && up < 10; el = el.parentElement, up++) {
+      if (/you matched with/i.test(textOf(el))) return el;
+    }
+    return null;
+  }
   function findModal() {
+    var ms = matchScreen();
+    if (ms) return { kind: 'match', el: ms };
     var ds = dialogs();
     for (var i = 0; i < ds.length; i++) {
       var t = textOf(ds[i]);
@@ -326,7 +338,7 @@
     return null;
   }
   function closeModal(el) {
-    var b = el.querySelector('button[aria-label*="close" i], button[title*="close" i]');
+    var b = el.querySelector('button[aria-label*="close" i], button[title*="close" i], button[title="Back to Tinder"]');
     if (!b) {
       var btns = Array.prototype.slice.call(el.querySelectorAll('button'));
       b = btns.find(function (x) { return /no thanks|not now|maybe later|keep swiping|back to tinder|close|dismiss|skip/i.test(textOf(x)); });
