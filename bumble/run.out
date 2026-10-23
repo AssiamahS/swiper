@@ -298,3 +298,4 @@ TimeoutError: timed out
 10-17 11:28:41 waiting for the phone (plug it in and unlock it): <urlopen error [Errno 61] Connection refused>
 10-19 22:03:16 waiting for the phone (plug it in and unlock it): <urlopen error [Errno 61] Connection refused>
 10-20 19:54:49 waiting for the phone (plug it in and unlock it): <urlopen error [Errno 61] Connection refused>
+10-22 16:11:32 waiting for the phone (plug it in and unlock it): <urlopen error [Errno 61] Connection refused>
