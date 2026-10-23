@@ -118,6 +118,28 @@ const LLAMA_PROMPT = 'You rate dating profile photos. Look at the photo and repl
   'facial_piercings (true for septum, lip, eyebrow, bridge, cheek, or two or more face piercings; one nose stud = false), alt_style (true for emo, goth or punk styling), gym_selfie (true/false). ' +
   'Rate what you actually see; do not guess middle values for everything.';
 const MISTRAL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
+// our own judge: CLIP on slybox (tools/taste/taste.py), no outside AI and no quota. TASTE_URL = https://<box>/taste-<token>, TASTE_KEY = <token>
+async function localJudge(env, imgs, deadline) {
+  if (!env.TASTE_URL) throw new Error("local: no TASTE_URL");
+  const r = await fetch(env.TASTE_URL + "/judge", {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Key": env.TASTE_KEY || "" },
+    body: JSON.stringify({ b64: imgs.slice(0, 6).map((im) => im.b64) }),
+    signal: AbortSignal.timeout(Math.max(5000, Math.min(30000, deadline - Date.now()))),
+  });
+  const d = await r.json().catch(() => ({ error: "local: HTTP " + r.status }));
+  if (!r.ok || d.error) throw new Error("local: " + (d.error || r.status));
+  return d;
+}
+
+// every card another model grades is a training example for the local judge (embeddings only are kept on the box)
+function teachLocal(env, ctx, imgs, v) {
+  if (!env.TASTE_URL || !ctx || !v || v.error || emptyVerdict(v)) return;
+  ctx.waitUntil(fetch(env.TASTE_URL + "/learn", {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Key": env.TASTE_KEY || "" },
+    body: JSON.stringify({ b64: imgs.slice(0, 6).map((im) => im.b64), verdict: v }),
+  }).catch(() => {}));
+}
+
 let aiDownUntil = 0;   // Workers AI free neurons are per day (00:00 UTC); once 4006 says they are gone, stop asking until then
 function aiQuotaGone(e) {
   if (/4006|daily free allocation|neurons/i.test(String(e))) { const d = new Date(); aiDownUntil = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); }
@@ -319,7 +341,7 @@ const INSTALL_HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport"
 <p>2. In Safari open <b>tinder.com</b>, tap Share, run <b>Swiper</b>.</p><p>3. Panel &rarr; Vision tab &rarr; paste the worker key once. Start.</p></body>`;
 
 const app = {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request) });
     if (request.method === "GET" && (url.pathname === "/swiper.js" || url.pathname === "/Swiper.shortcut")) {
@@ -390,8 +412,8 @@ const app = {
         return json(v, 200, request);
       } catch (e) { return json({ error: "forced runner | " + String(e.message || e).slice(0, 100) }, 200, request); }
     }
-    if (body.force === "llama" || body.force === "github" || body.force === "mistral") {
-      errs.push("forced " + body.force);
+    if (body.force !== "gemini" && !env.USE_GEMINI) {
+      errs.push("gemini off");
     } else {
       try {
         let v = await gemini(env, body.text || "", imgs, deadline, false);
@@ -402,15 +424,22 @@ const app = {
         return json(v, 200, request);
       } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
     }
-    if (body.force !== "llama" && body.force !== "github") {
+    if (body.force !== "llama" && body.force !== "github" && Date.now() >= aiDownUntil) {
       try {
         const v = await mistralVision(env, body.text || "", imgs, deadline);
         v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
         v._fallback = errs[0];
+        teachLocal(env, ctx, imgs, v);
         return json(v, 200, request);
       } catch (e) { aiQuotaGone(e); errs.push("mistral: " + String(e.message || e).slice(0, 100)); }
       if (body.force === "mistral") return json({ error: errs.join(" | ") }, 200, request);
     }
+    if (body.force !== "llama" && body.force !== "github") try {
+      const v = await localJudge(env, imgs, deadline);
+      v._timing = `fetch ${((t1 - t0) / 1000).toFixed(1)}s (${kb}KB, ${imgs.length} photos) model ${((Date.now() - t1) / 1000).toFixed(1)}s`;
+      v._fallback = errs[errs.length - 1];
+      return json(v, 200, request);
+    } catch (e) { errs.push(String(e.message || e).slice(0, 100)); }
     if (body.force === "github") {
       try {
         const v = await githubModels(env, body.text || "", imgs, deadline);
@@ -485,7 +514,7 @@ export default {
       try { return json(await opener(env, b.name, b.bio), 200, request); }
       catch (e) { return json({ error: String(e.message || e) }, 200, request); }
     }
-    const res = await app.fetch(request, env);
+    const res = await app.fetch(request, env, ctx);
     const isJudge = request.method === "POST" && authed && url.pathname !== "/log" && url.pathname !== "/live" && !url.pathname.startsWith("/relay");
     if (isJudge && env.RELAY) {
       ctx.waitUntil((async () => {
