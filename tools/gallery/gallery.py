@@ -21,8 +21,8 @@ ITEMS = os.path.join(DATA, "items.json")
 TOKEN = open(os.path.join(HOME, ".swiper", "gallery.token")).read().strip()
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
 REMOTE = "swipergallery:swiper-gallery"
-KEEP_NOMATCH_DAYS = 10    # no-match photos are ~0.5 GB/day at 3,000 swipes; matched ones are kept forever
-MAX_PHOTOS = 3
+KEEP_NOMATCH_DAYS = 7     # no-match photos are ~0.5 GB/day at 3,000 swipes; matched ones are kept forever
+MAX_PHOTOS = 7       # her face + every photo the judge says shows her body
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
 
 lock = threading.Lock()

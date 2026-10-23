@@ -11,7 +11,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.10.0';
+  var VERSION = '1.11.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -421,12 +421,13 @@
 
   // ---------------------------------------------------------------- vision judge
   var PROMPT = 'You are rating dating-app profile photos for a personal swipe filter. Look at ALL photos and return ONLY a JSON object, no prose, no markdown:\n' +
-    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"facial_piercings":true|false,"alt_style":true|false,"glutes":0-10,"gym_selfie":true|false,"notes":"short"}\n' +
+    '{"body":"slim|athletic|average|curvy|plus","body_confidence":0-1,"full_body_visible":true|false,"swimwear":true|false,"curves":0-10,"photo_quality":0-10,"grainy":true|false,"group_photo":true|false,"is_woman":true|false,"feminine":0-10,"face":0-10,"dyed_hair":true|false,"bust":0-10,"sexy_vibe":0-10,"in_shape":true|false,"facial_piercings":true|false,"alt_style":true|false,"glutes":0-10,"gym_selfie":true|false,"body_photos":[1,3],"notes":"short"}\n' +
     'bust: how large/prominent her chest is (0-10). sexy_vibe: how provocative, flirty or slutty the vibe is (tongue out, suggestive poses, revealing outfits, lingerie; 0 = wholesome, 10 = very provocative). ' +
     'face: how attractive the face and expression are for a dating profile (10 = objectively beautiful, cute or sexy expression like a sorority girl; 0 = unattractive or making ugly faces). dyed_hair: true for unnatural or split-dyed hair (pink, blue, green, purple, bright yellow, bright red, two-tone split dye); natural blonde, highlights, balayage and auburn = false. facial_piercings: true only for heavy face piercing: septum, lip, eyebrow, bridge, cheek, or two or more face piercings. A single small nose stud or one nose ring = false. Ear piercings = false. alt_style: true for emo/goth/punk/alt styling, heavy dark makeup, chains, harnesses. glutes: how big and shapely her butt is (0-10). gym_selfie: true for a gym or mirror selfie showing off her figure or butt. in_shape: true if she looks fit or slim-to-average with a toned or curvy figure, false if overweight. ' +
     'Judge across ALL photos, not just the first. full_body_visible: true only if at least one photo shows her from head to at least mid-thigh. swimwear: true if ANY photo shows a bikini, swimsuit or lingerie. ' +
     'body: overall body size of the main person using the clearest full-body photo (plus = visibly heavy/plus-size). curves: how pronounced hips/glutes/hourglass figure are. ' +
     'photo_quality: 10 = sharp, well lit, high-res; 0 = blurry, grainy, dark, pixelated, heavy filters. grainy = true if most photos are low quality. ' +
+    'body_photos: the numbers (1 = first photo, in the order given) of every photo that shows her body from at least chest to thigh; [] if none. ' +
     'group_photo = true if you cannot tell which person is the profile owner. is_woman: is the profile owner a woman (false for men, boys, or if you cannot tell). feminine: 0 = reads as a man/boy, 10 = unmistakably a woman.';
 
   function fetchImageAsDataUrl(url, maxSide) {
@@ -576,6 +577,11 @@
   function visionReady() { return cfg.vision.provider === 'bridge' || (cfg.vision.provider === 'worker' ? !!(cfg.vision.workerUrl && cfg.vision.workerKey) : !!(cfg.vision.geminiKey || cfg.vision.key)); }
   function num(x) { var n = Number(x); return (x === null || x === undefined || x === '' || isNaN(n)) ? null : n; }
   // 1.9.0: the verdict in words ("not pretty, small bust, covered up, no body pics") instead of "face 5 curves 4" (user: "I don't know what that means")
+  // 1.11.0 (user: "big bust but in shape, if they can be on Victoria's Secret that's good"): pretty + big bust + slim/athletic and in shape
+  function vsType(v) {
+    var b = String(v && v.body || '').toLowerCase();
+    return !!v && num(v.face) >= 8 && num(v.bust) >= 7 && v.in_shape !== false && (b === 'slim' || b === 'athletic');
+  }
   function describe(v) {
     if (!v) return '';
     var out = [], face = num(v.face), bust = num(v.bust), butt = num(v.glutes), sexy = num(v.sexy_vibe), q = num(v.photo_quality);
@@ -583,6 +589,7 @@
     if (v.body) out.push({ slim: 'slim', athletic: 'athletic', average: 'average body', curvy: 'curvy', plus: 'plus-size' }[String(v.body).toLowerCase()] || String(v.body));
     if (butt !== null) { if (butt >= 8) out.push('big butt'); else if (butt >= 7) out.push('nice butt'); else if (butt <= 3) out.push('flat butt'); }
     if (bust !== null) { if (bust >= 8) out.push('big bust'); else if (bust >= 7) out.push('nice bust'); else if (bust <= 3) out.push('small bust'); }
+    if (vsType(v)) out.push("Victoria's Secret type");
     if (v.swimwear === true) out.push('bikini pics');
     if (sexy !== null) out.push(sexy >= 7 ? 'sexy outfits' : sexy >= 4 ? 'some skin' : 'covered up');
     if (v.gym_selfie === true) out.push('gym/mirror selfie');
@@ -614,10 +621,11 @@
     if (v.grainy === true || (q !== null && q < V.minQuality)) return { d: 'nope', why: 'blurry photos' };
     // 1.9.0 (user: "if the girl is pretty or wearing sexy clothes you can like"): pretty face, sexy outfit or big bust
     // like without a head-to-thigh photo; the hard passes above still apply
+    if (vsType(v)) return { d: 'like', why: "Victoria's Secret type" };
     var feats = [];
     if (face !== null && face >= (V.likeFace || 11)) feats.push(face >= 9 ? 'very pretty' : 'pretty');
     if (num(v.sexy_vibe) !== null && num(v.sexy_vibe) >= (V.sexyAutoLike || 11)) feats.push('sexy outfit');
-    if (num(v.bust) !== null && num(v.bust) >= (V.bustAutoLike || 11)) feats.push('big bust');
+    if (num(v.bust) !== null && num(v.bust) >= (V.bustAutoLike || 11) && v.in_shape === true) feats.push('big bust, in shape');
     if (feats.length) return { d: 'like', why: feats.join(', ') };
     if (V.requireFullBody && v.full_body_visible !== true) return { d: 'nope', why: 'no body pics' };
     // full body on show: curves or a liked body type is enough
@@ -766,6 +774,14 @@
     if (cfg.gallery === false) return;
     var b = loadJSON(LS_GALLERY, []); b.push(e); if (b.length > 300) b.splice(0, b.length - 300); saveJSON(LS_GALLERY, b);
   }
+  // the photos where her body shows (judge's body_photos, 1-based), the first one as her face; first 3 when the judge gave none
+  function bodyPhotos(photos, v) {
+    var idx = (v && Array.isArray(v.body_photos) ? v.body_photos : []).map(Number).filter(function (i) { return i >= 1 && i <= photos.length; });
+    if (!idx.length) return photos.slice(0, 3);
+    var out = [photos[0]];
+    idx.forEach(function (i) { if (out.indexOf(photos[i - 1]) < 0) out.push(photos[i - 1]); });
+    return out.slice(0, 7);
+  }
   function galleryDrain() { var b = loadJSON(LS_GALLERY, []); saveJSON(LS_GALLERY, []); return b; }
 
   // ---------------------------------------------------------------- taste guard (1.8.0)
@@ -780,6 +796,7 @@
     var n = function (x) { var k = Number(x); return isNaN(k) ? 0 : k; };
     // 1.8.3: user's #1 type: a big-butt like never gets capped (Emma 22, glutes 8, was noped at 43% > 40%)
     if (cfg.capExemptButt !== false && n(v.glutes) >= (cfg.vision.glutesAutoLike || 7)) return 99;
+    if (vsType(v)) return 99;   // 1.11.0: the Victoria's Secret tier never gets capped either
     var strong = 0;
     if (n(v.face) >= 9 || n(v.glutes) >= 9 || v.swimwear === true) strong += 2;
     strong += (String(d.why || '').split(',').length > 1 ? 1 : 0);
@@ -981,7 +998,7 @@
       recordDecision(d.d === 'like');
       var looks = describe(d.v);
       liveAdd({ ts: Date.now(), k: d.d === 'like' ? 'like' : 'nope', m: (p.name || '?') + (p.age ? ' ' + p.age : '') + ': ' + d.d + ' because ' + (d.why || '?') + (looks ? ' | looks: ' + looks : ''), d: { name: p.name, age: p.age, why: d.why, looks: looks, verdict: d.v || null, bio: (p.bio || '').slice(0, 200), photos: (p.photos || []).length } });
-      if (d.d === 'like') { var rc2 = recsFor(p); galleryAdd({ uid: (rc2 && rc2.uid) || '', name: p.name, age: p.age, why: d.why, looks: looks, verdict: d.v || null, photos: (p.photos || []).slice(0, 4), bio: (p.bio || '').slice(0, 300), t: Date.now() }); }
+      if (d.d === 'like') { var rc2 = recsFor(p); galleryAdd({ uid: (rc2 && rc2.uid) || '', name: p.name, age: p.age, why: d.why, looks: looks, verdict: d.v || null, photos: bodyPhotos(p.photos || [], d.v), bio: (p.bio || '').slice(0, 300), t: Date.now() }); }
       if (cfg.vision.provider === 'worker' && cfg.vision.workerKey && d.v) {
         tasteAdd({ name: p.name, age: p.age, decision: d.d, why: d.why, verdict: d.v, bio: (p.bio || '').slice(0, 200), t: Date.now() });
         lastVerdict = null;
