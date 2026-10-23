@@ -11,7 +11,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.9.1';
+  var VERSION = '1.10.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -367,7 +367,7 @@
       var extra = [u.bio || ''].concat(((r.experiment_info || {}).user_interests || {}).selected_interests ? r.experiment_info.user_interests.selected_interests.map(function (i) { return i.name; }) : [])
         .concat((u.selected_descriptors || []).map(function (x) { return (x.choice_selections || []).map(function (c) { return c.name; }).join(' '); }));
       var rk = u.name + '|' + ageFrom(u.birth_date);
-      recs[rk] = { photos: photos, text: extra.join(' '), at: Date.now() };
+      recs[rk] = { photos: photos, text: extra.join(' '), uid: u._id || '', at: Date.now() };
       if (prefetchQueue.indexOf(rk) < 0) prefetchQueue.push(rk);
     });
     setTimeout(prefetchTick, 0);
@@ -758,6 +758,16 @@
   setInterval(tasteFlush, 10 * 60 * 1000);
   window.addEventListener('pagehide', function () { tasteFlush(); });
 
+  // ---------------------------------------------------------------- gallery (1.10.0)
+  // every like with its photos + plain-English grades, drained by the slybox gallery service (tools/gallery) into
+  // matched / no-match folders on MEGA and a judge page; tinder photo links expire, so they are collected as they happen
+  var LS_GALLERY = 'swiper.gallerybuf';
+  function galleryAdd(e) {
+    if (cfg.gallery === false) return;
+    var b = loadJSON(LS_GALLERY, []); b.push(e); if (b.length > 300) b.splice(0, b.length - 300); saveJSON(LS_GALLERY, b);
+  }
+  function galleryDrain() { var b = loadJSON(LS_GALLERY, []); saveJSON(LS_GALLERY, []); return b; }
+
   // ---------------------------------------------------------------- taste guard (1.8.0)
   // Tinder's "what you want" = the average embedding of everything you liked, so a loose like is noise in your own feed.
   // Above maxLikeRate only a strong like (two reasons, or a 9+ face/butt) goes through; the rest are logged as 'rate cap'.
@@ -971,6 +981,7 @@
       recordDecision(d.d === 'like');
       var looks = describe(d.v);
       liveAdd({ ts: Date.now(), k: d.d === 'like' ? 'like' : 'nope', m: (p.name || '?') + (p.age ? ' ' + p.age : '') + ': ' + d.d + ' because ' + (d.why || '?') + (looks ? ' | looks: ' + looks : ''), d: { name: p.name, age: p.age, why: d.why, looks: looks, verdict: d.v || null, bio: (p.bio || '').slice(0, 200), photos: (p.photos || []).length } });
+      if (d.d === 'like') { var rc2 = recsFor(p); galleryAdd({ uid: (rc2 && rc2.uid) || '', name: p.name, age: p.age, why: d.why, looks: looks, verdict: d.v || null, photos: (p.photos || []).slice(0, 4), bio: (p.bio || '').slice(0, 300), t: Date.now() }); }
       if (cfg.vision.provider === 'worker' && cfg.vision.workerKey && d.v) {
         tasteAdd({ name: p.name, age: p.age, decision: d.d, why: d.why, verdict: d.v, bio: (p.bio || '').slice(0, 200), t: Date.now() });
         lastVerdict = null;
@@ -1317,5 +1328,5 @@
   if (cfg.geo.enabled) installGeo();
   log('loaded on ' + location.pathname);
   if (!/\/app\/recs/.test(location.pathname)) log('open tinder.com/app/recs and press Start', 'warn');
-  window.__swiper = { show: function () { panel.style.display = ''; panel.classList.remove('min'); }, cfg: cfg, start: start, stop: stop, probe: probe, judge: judge, capped: capped, version: VERSION };
+  window.__swiper = { show: function () { panel.style.display = ''; panel.classList.remove('min'); }, cfg: cfg, start: start, stop: stop, probe: probe, judge: judge, capped: capped, describe: describe, galleryDrain: galleryDrain, version: VERSION };
 })();

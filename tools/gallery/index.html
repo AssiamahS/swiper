@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Swiper Gallery</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1b1b1a; --muted: #6d6a64; --line: #e3e0da;
+    --yes: #1f7a4d; --yes-bg: #e3f3ea; --no: #a8322b; --no-bg: #f8e4e2; --accent: #c2410c; --chip: #efece6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121211; --panel: #1c1c1b; --ink: #f1efea; --muted: #9a968e; --line: #2e2d2a;
+      --yes: #5fd39a; --yes-bg: #173326; --no: #f08a82; --no-bg: #3a1c1a; --accent: #fb923c; --chip: #2a2927;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121211; --panel: #1c1c1b; --ink: #f1efea; --muted: #9a968e; --line: #2e2d2a;
+    --yes: #5fd39a; --yes-bg: #173326; --no: #f08a82; --no-bg: #3a1c1a; --accent: #fb923c; --chip: #2a2927;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 16px 0; }
+  h1 { font-size: 17px; margin: 0 0 6px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  nav { display: flex; gap: 4px; overflow-x: auto; }
+  nav button { flex: none; border: 0; background: none; color: var(--muted); font: inherit; padding: 8px 10px; border-bottom: 2px solid transparent; cursor: pointer; }
+  nav button.on { color: var(--ink); border-color: var(--accent); font-weight: 600; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .photo { position: relative; aspect-ratio: 4 / 5; background: #000; cursor: pointer; }
+  .photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .dots { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; gap: 4px; }
+  .dots span { flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.35); }
+  .dots span.on { background: #fff; }
+  .badge { position: absolute; bottom: 10px; left: 10px; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.m { background: var(--yes); color: #fff; }
+  .badge.n { background: rgba(0,0,0,.6); color: #fff; }
+  .info { padding: 12px 14px; }
+  .name { font-size: 18px; font-weight: 650; }
+  .line { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  .line b { color: var(--ink); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 12px; }
+  .chips button { border: 1px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 999px; padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chips button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .acts { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; padding: 0 14px 14px; }
+  .acts button { border: 0; border-radius: 10px; padding: 14px 8px; font: inherit; font-weight: 650; cursor: pointer; }
+  .no { background: var(--no-bg); color: var(--no); }
+  .yes { background: var(--yes-bg); color: var(--yes); }
+  .skip { background: var(--chip); color: var(--muted); padding: 14px 16px !important; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer; }
+  .tile .photo { aspect-ratio: 3 / 4; }
+  .tile .info { padding: 8px 10px; }
+  .tile .name { font-size: 14px; }
+  .tile .line { font-size: 12px; }
+  .yv { color: var(--yes); font-weight: 600; } .nv { color: var(--no); font-weight: 600; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 10px; }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .kpi .v { font-size: 22px; font-weight: 700; }
+  .kpi .l { color: var(--muted); font-size: 12px; }
+  h2 { font-size: 15px; margin: 18px 0 4px; }
+  .note { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; } th.n { text-align: right; }
+  .bar { height: 6px; border-radius: 3px; background: var(--accent); min-width: 2px; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 16px; z-index: 9; }
+  .modal.on { display: flex; }
+  .modal .card { width: 100%; max-width: 480px; }
+  .close { display: block; margin: 10px auto 0; background: none; border: 0; color: #fff; font: inherit; cursor: pointer; }
+  .more { display: block; margin: 16px auto; padding: 10px 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Swiper Gallery</h1>
+  <div class="sub" id="sub">loading...</div>
+  <nav id="tabs">
+    <button data-t="judge" class="on">Judge</button>
+    <button data-t="matched">Matched</button>
+    <button data-t="nomatch">No match yet</button>
+    <button data-t="stats">What works</button>
+  </nav>
+</header>
+<main id="main"></main>
+<div class="modal" id="modal"><div style="width:100%;max-width:480px"><div id="mcard"></div><button class="close" id="mclose">Close</button></div></div>
+<script>
+(function () {
+  var TAGS = ['really big butt', 'big bust', 'pretty', 'sexy outfit', 'great body', 'bad photos', 'not my face type', 'too skinny', 'too heavy'];
+  var tab = 'judge', queue = [], offs = {}, main = document.getElementById('main');
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function api(p, body) {
+    return fetch('api/' + p, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}).then(function (r) { return r.json(); });
+  }
+  function pct(a, b) { return b ? Math.round(a * 1000 / b) / 10 + '%' : '-'; }
+  function sub() {
+    api('stats').then(function (s) {
+      document.getElementById('sub').textContent = s.liked + ' liked, ' + s.matched_from_bot + ' matched back (' + pct(s.matched_from_bot, s.liked) + '), ' + s.judged + ' judged by you';
+    });
+  }
+  function photoBox(it) {
+    var n = Math.max(1, it.photos || 0), i = 0;
+    var box = document.createElement('div'); box.className = 'photo';
+    function draw() {
+      box.innerHTML = '<img alt="" loading="lazy" src="img/' + esc(it.key) + '/' + (i + 1) + '.jpg">' +
+        (n > 1 ? '<div class="dots">' + Array.apply(null, Array(n)).map(function (_, k) { return '<span' + (k === i ? ' class="on"' : '') + '></span>'; }).join('') + '</div>' : '') +
+        '<span class="badge ' + (it.matched ? 'm">Matched' : 'n">No match yet') + '</span>';
+    }
+    box.onclick = function (e) { e.stopPropagation(); i = (i + 1) % n; draw(); };
+    draw(); return box;
+  }
+  function infoHtml(it) {
+    var j = it.judge && it.judge.verdict;
+    return '<div class="name">' + esc(it.name) + ' ' + esc(it.age || '') + '</div>' +
+      (it.why ? '<div class="line">Swiper liked her because: <b>' + esc(it.why) + '</b></div>' : '<div class="line">' + (it.source === 'match' ? 'Matched before the gallery existed' : '') + '</div>') +
+      (it.looks ? '<div class="line">AI sees: ' + esc(it.looks) + '</div>' : '') +
+      (j && j !== 'skip' ? '<div class="line">Your call: <span class="' + (j === 'yes' ? 'yv">my type' : 'nv">not my type') + '</span>' + (it.judge.tags && it.judge.tags.length ? ' (' + esc(it.judge.tags.join(', ')) + ')' : '') + '</div>' : '');
+  }
+  function judgeCard(it, done) {
+    var card = document.createElement('div'); card.className = 'card';
+    card.appendChild(photoBox(it));
+    var info = document.createElement('div'); info.className = 'info'; info.innerHTML = infoHtml(it); card.appendChild(info);
+    var picked = (it.judge && it.judge.tags || []).slice();
+    var chips = document.createElement('div'); chips.className = 'chips';
+    TAGS.forEach(function (t) {
+      var b = document.createElement('button'); b.textContent = t; if (picked.indexOf(t) >= 0) b.className = 'on';
+      b.onclick = function () { var k = picked.indexOf(t); if (k >= 0) { picked.splice(k, 1); b.className = ''; } else { picked.push(t); b.className = 'on'; } };
+      chips.appendChild(b);
+    });
+    card.appendChild(chips);
+    var acts = document.createElement('div'); acts.className = 'acts';
+    [['no', 'Not my type'], ['skip', 'Skip'], ['yes', 'My type']].forEach(function (a) {
+      var b = document.createElement('button'); b.className = a[0]; b.textContent = a[1];
+      b.onclick = function () { api('judge', { key: it.key, verdict: a[0], tags: picked }).then(function () { it.judge = { verdict: a[0], tags: picked }; done(); sub(); }); };
+      acts.appendChild(b);
+    });
+    card.appendChild(acts);
+    return card;
+  }
+  function showJudge() {
+    if (!queue.length) {
+      main.innerHTML = '<div class="empty">Loading cards...</div>';
+      return api('items?tab=judge&lim=30').then(function (r) {
+        queue = r.rows;
+        if (!queue.length) { main.innerHTML = '<div class="empty">Nothing left to judge. New likes show up here as swiper makes them.</div>'; return; }
+        showJudge();
+      });
+    }
+    main.innerHTML = '';
+    main.appendChild(judgeCard(queue[0], function () { queue.shift(); showJudge(); }));
+  }
+  function tile(it) {
+    var t = document.createElement('div'); t.className = 'tile';
+    t.appendChild(photoBox(it));
+    var j = it.judge && it.judge.verdict;
+    var info = document.createElement('div'); info.className = 'info';
+    info.innerHTML = '<div class="name">' + esc(it.name) + ' ' + esc(it.age || '') + '</div><div class="line">' + esc(it.looks || it.why || '') + '</div>' +
+      (j === 'yes' ? '<div class="line yv">my type</div>' : j === 'no' ? '<div class="line nv">not my type</div>' : '');
+    t.appendChild(info);
+    t.onclick = function () { openModal(it); };
+    return t;
+  }
+  function showGrid(which, append) {
+    if (!append) { offs[which] = 0; main.innerHTML = '<div class="grid" id="grid"></div>'; }
+    var grid = document.getElementById('grid');
+    api('items?tab=' + which + '&off=' + offs[which] + '&lim=40').then(function (r) {
+      if (!r.total) { main.innerHTML = '<div class="empty">' + (which === 'matched' ? 'No matches in the gallery yet.' : 'Nothing here yet.') + '</div>'; return; }
+      r.rows.forEach(function (it) { grid.appendChild(tile(it)); });
+      offs[which] += r.rows.length;
+      var old = document.getElementById('more'); if (old) old.remove();
+      if (offs[which] < r.total) {
+        var b = document.createElement('button'); b.className = 'more'; b.id = 'more'; b.textContent = 'Show more (' + (r.total - offs[which]) + ' left)';
+        b.onclick = function () { showGrid(which, true); }; main.appendChild(b);
+      }
+    });
+  }
+  function openModal(it) {
+    var m = document.getElementById('mcard'); m.innerHTML = '';
+    m.appendChild(judgeCard(it, function () { document.getElementById('modal').className = 'modal'; if (tab !== 'judge') showGrid(tab); }));
+    document.getElementById('modal').className = 'modal on';
+  }
+  document.getElementById('mclose').onclick = function () { document.getElementById('modal').className = 'modal'; };
+  function showStats() {
+    main.innerHTML = '<div class="empty">Loading...</div>';
+    api('stats').then(function (s) {
+      var top = Math.max.apply(null, s.traits.map(function (t) { return t[1] ? t[2] / t[1] : 0; }).concat([0.0001]));
+      var h = '<div class="kpis"><div class="kpi"><div class="v">' + s.liked + '</div><div class="l">liked by swiper</div></div>' +
+        '<div class="kpi"><div class="v">' + s.matched_from_bot + '</div><div class="l">liked you back (' + pct(s.matched_from_bot, s.liked) + ')</div></div>' +
+        '<div class="kpi"><div class="v">' + (s.judged ? pct(s.you_yes, s.judged) : '-') + '</div><div class="l">of judged are your type</div></div></div>';
+      h += '<h2>Who likes you back</h2><p class="note">For each thing the AI saw, how many of those women swiper liked and how many matched. Matches can take a day or two to come in.</p>';
+      h += '<table><tr><th>What the AI saw</th><th class="n">Liked</th><th class="n">Matched</th><th class="n">Rate</th><th style="width:25%"></th></tr>' +
+        s.traits.map(function (t) { var r = t[1] ? t[2] / t[1] : 0; return '<tr><td>' + esc(t[0]) + '</td><td class="n">' + t[1] + '</td><td class="n">' + t[2] + '</td><td class="n">' + pct(t[2], t[1]) + '</td><td><div class="bar" style="width:' + Math.round(r / top * 100) + '%"></div></td></tr>'; }).join('') + '</table>';
+      h += '<h2>Is swiper liking your type?</h2><p class="note">Grouped by the main reason swiper liked her. "You agree" = the share of the ones you judged that you called your type. Low agreement = that rule needs tightening.</p>';
+      h += '<table><tr><th>Liked because</th><th class="n">Liked</th><th class="n">Matched</th><th class="n">You judged</th><th class="n">You agree</th></tr>' +
+        s.reasons.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td class="n">' + r[1] + '</td><td class="n">' + r[2] + '</td><td class="n">' + r[3] + '</td><td class="n">' + pct(r[4], r[3]) + '</td></tr>'; }).join('') + '</table>';
+      main.innerHTML = h;
+    });
+  }
+  function go(t) {
+    tab = t;
+    Array.prototype.forEach.call(document.querySelectorAll('#tabs button'), function (b) { b.className = b.getAttribute('data-t') === t ? 'on' : ''; });
+    if (t === 'judge') { queue = []; showJudge(); } else if (t === 'stats') showStats(); else showGrid(t);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#tabs button'), function (b) { b.onclick = function () { go(b.getAttribute('data-t')); }; });
+  document.addEventListener('keydown', function (e) {
+    if (tab !== 'judge' || document.getElementById('modal').className.indexOf('on') >= 0) return;
+    var map = { ArrowLeft: '.acts .no', ArrowRight: '.acts .yes', ArrowDown: '.acts .skip' }, b = map[e.key] && main.querySelector(map[e.key]);
+    if (b) { e.preventDefault(); b.click(); }
+  });
+  sub(); go('judge');
+})();
+</script>
+</body>
+</html>
