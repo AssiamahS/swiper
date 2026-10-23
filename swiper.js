@@ -11,7 +11,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.9.0';
+  var VERSION = '1.9.1';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -608,7 +608,7 @@
     if (V.nopeAlt !== false && v.alt_style === true) return { d: 'nope', why: 'alt/emo style' };
     // the user's type, in order: big butt, bikini, pretty, big bust. bikini/butt/gym already show the body
     if (V.swimwearAutoLike && v.swimwear === true) return { d: 'like', why: 'bikini pics' };
-    if (num(v.glutes) !== null && num(v.glutes) >= (V.glutesAutoLike || 7)) return { d: 'like', why: 'big butt' };
+    if (num(v.glutes) !== null && num(v.glutes) >= (V.glutesAutoLike || 7)) return { d: 'like', why: num(v.glutes) >= 8 ? 'big butt' : 'nice butt' };
     if (V.gymSelfieLike !== false && v.gym_selfie === true) return { d: 'like', why: 'gym selfie' };
     if (face !== null && face < (V.minFace || 0)) return { d: 'nope', why: 'not pretty' };
     if (v.grainy === true || (q !== null && q < V.minQuality)) return { d: 'nope', why: 'blurry photos' };
