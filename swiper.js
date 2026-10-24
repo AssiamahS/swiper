@@ -11,7 +11,7 @@
   'use strict';
   if (window.__swiper) { window.__swiper.show(); return; }
 
-  var VERSION = '1.11.0';
+  var VERSION = '1.12.0';
   var LS_CFG = 'swiper.cfg';
   var LS_STATS = 'swiper.stats';
   var BAKED_KEY = '__JUDGE_KEY__';   // the worker fills this in when it serves /swiper.js to tinder.com, so no key is ever pasted by hand
@@ -585,6 +585,8 @@
   function describe(v) {
     if (!v) return '';
     var out = [], face = num(v.face), bust = num(v.bust), butt = num(v.glutes), sexy = num(v.sexy_vibe), q = num(v.photo_quality);
+    var yt = num(v.your_type);
+    if (yt !== null) out.push(yt >= (cfg.vision.yourTypeLike || 0.8) ? 'your type' : yt <= (cfg.vision.yourTypeNope || 0.25) ? 'not your type' : 'maybe your type');
     if (face !== null) out.push(face >= 9 ? 'very pretty' : face >= 8 ? 'pretty' : face >= 7 ? 'cute' : face >= 6 ? 'average looking' : 'not pretty');
     if (v.body) out.push({ slim: 'slim', athletic: 'athletic', average: 'average body', curvy: 'curvy', plus: 'plus-size' }[String(v.body).toLowerCase()] || String(v.body));
     if (butt !== null) { if (butt >= 8) out.push('big butt'); else if (butt >= 7) out.push('nice butt'); else if (butt <= 3) out.push('flat butt'); }
@@ -613,6 +615,11 @@
     if (V.nopeDyedHair && v.dyed_hair === true) return { d: 'nope', why: 'dyed hair' };
     if (V.nopePiercings !== false && v.facial_piercings === true) return { d: 'nope', why: 'face piercings' };
     if (V.nopeAlt !== false && v.alt_style === true) return { d: 'nope', why: 'alt/emo style' };
+    // 1.12.0: your_type = the slybox judge's own read of the user's taste, learned from his judge-page labels (only sent once
+    // it has 30+); a confident call wins over the trait rules, an unsure one (0.25-0.8) falls through to them
+    var yt = num(v.your_type);
+    if (yt !== null && yt <= (V.yourTypeNope || 0.25)) return { d: 'nope', why: 'not your type (learned from your judging)' };
+    if (yt !== null && yt >= (V.yourTypeLike || 0.8)) return { d: 'like', why: 'your type (learned from your judging)' };
     // the user's type, in order: big butt, bikini, pretty, big bust. bikini/butt/gym already show the body
     if (V.swimwearAutoLike && v.swimwear === true) return { d: 'like', why: 'bikini pics' };
     if (num(v.glutes) !== null && num(v.glutes) >= (V.glutesAutoLike || 7)) return { d: 'like', why: num(v.glutes) >= 8 ? 'big butt' : 'nice butt' };
@@ -797,6 +804,7 @@
     // 1.8.3: user's #1 type: a big-butt like never gets capped (Emma 22, glutes 8, was noped at 43% > 40%)
     if (cfg.capExemptButt !== false && n(v.glutes) >= (cfg.vision.glutesAutoLike || 7)) return 99;
     if (vsType(v)) return 99;   // 1.11.0: the Victoria's Secret tier never gets capped either
+    if (n(v.your_type) >= (cfg.vision.yourTypeLike || 0.8)) return 99;   // 1.12.0: nor a confident "your type" from the learned judge
     var strong = 0;
     if (n(v.face) >= 9 || n(v.glutes) >= 9 || v.swimwear === true) strong += 2;
     strong += (String(d.why || '').split(',').length > 1 ? 1 : 0);

@@ -22,6 +22,8 @@ GALLERY = os.path.expanduser("~/swiper/gallery")
 CALIB = os.path.join(HERE, "calib.json")
 LEARN = os.path.join(HERE, "learn.pkl")   # [(photo embeddings float16, verdict)] from cards another vision model graded; no photos kept
 REFIT_EVERY = 100
+JUDGE_MIN = 30        # the user's judge-page labels (yes/no) needed before your_type is sent at all
+JUDGE_REFIT_S = 1800  # serve: look for new labels this often
 TOKEN = open(os.path.expanduser("~/.swiper/taste.token")).read().strip() if os.path.exists(os.path.expanduser("~/.swiper/taste.token")) else ""
 MAX_PHOTOS = 6
 torch.set_num_threads(2)
@@ -142,6 +144,9 @@ def verdict(L, calib):
     v["body"] = "plus" if plus >= th["plus"] else "curvy" if v["curves"] >= 7 else "athletic" if v["gym_selfie"] else "slim"
     v["body_confidence"] = 0.8 if fb else 0.3
     v["body_photos"] = [i + 1 for i in fb]
+    j = calib.get("judge")
+    if j and j.get("n", 0) >= JUDGE_MIN:   # the user's own taste, learned from his judge-page labels; swiper acts on <=.25 and >=.8
+        v["your_type"] = round(float(1 / (1 + np.exp(-(np.dot(j["w"], feats) + j["b"])))), 2)
     v["notes"] = "local clip"
     return v
 
@@ -186,6 +191,64 @@ def labeled():
             d = os.path.join(HERE, "evalref", "img", k)
             out.append((photos_in(d), v))
     return out
+
+
+def judged():
+    """(photo files, yes/no, tags) for every card the user labeled on the judge page"""
+    out = []
+    try: items = json.load(open(os.path.join(GALLERY, "items.json")))
+    except Exception: items = {}
+    for k, it in items.items():
+        jd = it.get("judge") or {}
+        d = os.path.join(GALLERY, "img", k)
+        if jd.get("verdict") in ("yes", "no") and os.path.isdir(d) and photos_in(d):
+            out.append((photos_in(d), jd["verdict"] == "yes", jd.get("tags") or []))
+    return out
+
+
+def fit_judge(rows):
+    """logistic map features -> P(his type) from the judge labels; class-balanced so 'no' counts even when he mostly says yes"""
+    from sklearn.linear_model import LogisticRegression
+    X = np.array([card_features(L) for L, _ in rows]); y = np.array([int(t) for _, t in rows])
+    if len(rows) < JUDGE_MIN or y.sum() < 5 or (1 - y).sum() < 5: return None
+    m = LogisticRegression(C=0.5, class_weight="balanced", max_iter=2000).fit(X, y)
+    return {"w": m.coef_[0].tolist(), "b": float(m.intercept_[0]), "n": int(len(rows)), "yes": int(y.sum())}
+
+
+def judge_rows():
+    """CLIP leanings for each judged card, embedded once (embeds.pkl shared with cache_leanings)"""
+    path, rows = os.path.join(HERE, "embeds.pkl"), []
+    done = load_pkl(path, {})
+    new = 0
+    for files, yes, _ in judged():
+        if files[0] not in done:
+            with LOCK: done[files[0]] = embed([Image.open(f) for f in files[:MAX_PHOTOS]]).numpy().astype(np.float16)
+            new += 1
+        rows.append((leanings(torch.from_numpy(done[files[0]].astype(np.float32))), yes))
+    if new: pickle.dump(done, open(path, "wb"))
+    return rows
+
+
+def refit_judge():
+    """serve-time: refit your_type when the user has labeled more cards; keeps the rest of calib.json as is"""
+    rows = judge_rows()
+    cal = load_calib()
+    j = fit_judge(rows)
+    if j is None: cal.pop("judge", None)
+    else: cal["judge"] = j
+    json.dump(cal, open(CALIB + ".tmp", "w")); os.replace(CALIB + ".tmp", CALIB)
+    return len(rows), j
+
+
+def judge_loop():
+    seen = -1
+    while True:
+        try:
+            n = len(judged())
+            if n != seen: seen = n; refit_judge()
+        except Exception as e:
+            print("judge refit failed:", str(e)[:200], flush=True)
+        time.sleep(JUDGE_REFIT_S)
 
 
 def num(x, dflt=5.0):
@@ -239,7 +302,8 @@ def learn(imgs, v):
     log = log[-5000:]
     pickle.dump(log, open(LEARN + ".tmp", "wb")); os.replace(LEARN + ".tmp", LEARN)
     if len(log) % REFIT_EVERY == 0:
-        json.dump(fit(cache_leanings()), open(CALIB, "w"))
+        cal = fit(cache_leanings()); cal["judge"] = load_calib().get("judge")
+        json.dump(cal, open(CALIB, "w"))
     return len(log)
 
 
@@ -251,7 +315,8 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
 
     def do_GET(self):
-        self._send(200, {"ok": True, "calibrated_on": load_calib().get("n", 0), "learned": len(load_pkl(LEARN, []))})
+        c = load_calib()
+        self._send(200, {"ok": True, "calibrated_on": c.get("n", 0), "learned": len(load_pkl(LEARN, [])), "your_labels": (c.get("judge") or {}).get("n", 0)})
 
     def do_POST(self):
         if TOKEN and self.headers.get("X-Key") != TOKEN: return self._send(401, {"error": "bad key"})
@@ -271,10 +336,21 @@ class H(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "serve"
     if cmd == "serve":
+        threading.Thread(target=judge_loop, daemon=True).start()
         ThreadingHTTPServer(("127.0.0.1", 8767), H).serve_forever()
+    elif cmd == "judge":   # leave-one-out on the user's labels: how often your_type would call it the way he did
+        rows = judge_rows()
+        hit = tot = 0
+        for i, (L, yes) in enumerate(rows):
+            j = fit_judge(rows[:i] + rows[i + 1:])
+            if not j: continue
+            p = 1 / (1 + np.exp(-(np.dot(j["w"], card_features(L)) + j["b"])))
+            tot += 1; hit += (p >= .5) == yes
+        print(f"{len(rows)} labels ({sum(y for _, y in rows)} yes); agreement with you {round(100 * hit / tot) if tot else 0}%")
     elif cmd == "calibrate":
         rows = cache_leanings()
-        json.dump(fit(rows), open(CALIB, "w"))
+        cal = fit(rows); cal["judge"] = load_calib().get("judge")
+        json.dump(cal, open(CALIB, "w"))
         print("calibrated on", len(rows), "cards")
     elif cmd == "eval":
         rows = cache_leanings()
