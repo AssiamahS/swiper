@@ -177,7 +177,8 @@ def labeled():
     except Exception: items = {}
     for k, it in items.items():
         d = os.path.join(GALLERY, "img", k)
-        if it.get("verdict") and os.path.isdir(d):
+        # never learn from our own grades (the gallery stores whatever verdict liked the card, mostly ours since 10/23)
+        if it.get("verdict") and not str(it["verdict"].get("_model", "")).startswith("local/") and os.path.isdir(d):
             out.append((photos_in(d), it["verdict"]))
     refs = os.path.join(HERE, "evalref", "refs.json")
     if os.path.exists(refs):
